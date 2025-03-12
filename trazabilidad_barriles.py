@@ -11,6 +11,9 @@ st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 st.markdown("<div style='font-size:48px; font-weight:bold; color:#2cc6c1; text-align:center;'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
 st.markdown("---")
 
+CREDENTIALS_FILE = "credentials.json"
+credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
+
 # ----------------------------------------
 # CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
 # ----------------------------------------
