@@ -4,6 +4,10 @@ import pandas as pd
 import os
 import base64
 from datetime import date
+import gspread
+from google.oauth2.service_account import Credentials
+from gspread_dataframe import set_with_dataframe, get_as_dataframe
+import json
 
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 st.markdown("""
@@ -17,6 +21,18 @@ st.markdown("""
     }
     </style>
 """, unsafe_allow_html=True)
+# 🔐 Conexión a Google Sheets (reemplaza tu CSV)
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+
+# Carga las credenciales desde st.secrets (asegúrate que esté configurado en .streamlit/secrets.toml)
+credentials_dict = st.secrets["gcp_service_account"]
+credentials = Credentials.from_service_account_info(credentials_dict, scopes=scope)
+client = gspread.authorize(credentials)
+
+# Abre la hoja de cálculo por URL o nombre
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
+sheet = client.open_by_url(SPREADSHEET_URL).sheet1
+
 
 def add_bg_from_local(image_file):
     with open(image_file, "rb") as image_file:
@@ -118,12 +134,17 @@ if st.button("Guardar Registro"):
             "Responsable": [responsable],
             "Observaciones": [observaciones]
         })
-        if os.path.exists("registro_barriles.csv"):
-            df_existente = pd.read_csv("registro_barriles.csv")
-            df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
-        else:
-            df_actualizado = nuevo_registro
-        df_actualizado.to_csv("registro_barriles.csv", index=False)
+       try:
+    registros_existentes = sheet.get_all_records()
+    df_existente = pd.DataFrame(registros_existentes)
+    df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
+except:
+    df_actualizado = nuevo_registro
+
+# Limpia la hoja y vuelve a escribir el contenido completo
+sheet.clear()
+set_with_dataframe(sheet, df_actualizado)
+
         st.success("✅ Registro guardado correctamente")
     else:
         if not codigo_valido:
