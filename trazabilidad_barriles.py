@@ -6,11 +6,10 @@ from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe
 from datetime import date
 
-st.write("Mis secrets:", st.secrets)
-
 # 📌 Configuración inicial de la app
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 
+st.write("Mis secrets:", st.secrets)
 # 🔹 Título
 st.markdown("<h1 style='text-align: center; color: #2cc6c1;'>🍺 TRAZABILIDAD BARRILES CASTIZA</h1>", unsafe_allow_html=True)
 
