@@ -57,9 +57,6 @@ except:
     with open("credentials.json") as source:
         credentials_dict = json.load(source)
 
-credentials = Credentials.from_service_account_info(credentials_dict, scopes=scope)
-client = gspread.authorize(credentials)
-
 # URL de la hoja de cálculo
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
