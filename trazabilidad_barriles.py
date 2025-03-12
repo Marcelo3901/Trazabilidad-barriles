@@ -7,8 +7,10 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 
-# Configuración inicial de Streamlit
+# Configuración de página
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
+
+# Estilo visual
 st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
@@ -21,7 +23,7 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
-# Fondo visual
+# Fondo personalizado
 def add_bg_from_local(image_file):
     with open(image_file, "rb") as image_file:
         encoded_string = base64.b64encode(image_file.read()).decode()
@@ -40,7 +42,7 @@ def add_bg_from_local(image_file):
 if os.path.exists('images/image (2).jpg'):
     add_bg_from_local('images/image (2).jpg')
 
-# Estilo visual de botones y título
+# Estilo de botones y títulos
 st.markdown("""
     <style>
     .big-title {
@@ -72,16 +74,20 @@ st.markdown("""
 
 st.markdown("<div class='big-title'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
 
-# Conexión con Google Sheets
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", SCOPE)
+# ----------------------------
+# CONEXIÓN CON GOOGLE SHEETS
+# ----------------------------
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
 client = gspread.authorize(credentials)
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0"
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
-# Registro de barril
+# ----------------------------
+# FORMULARIO PRINCIPAL
+# ----------------------------
 st.markdown("<h2 style='font-size:32px;'>📋 Registro de Barril</h2>", unsafe_allow_html=True)
-fecha_registro = st.date_input("Fecha")
+fecha_registro = st.date_input("Fecha", date.today())
 codigo_barril = st.text_input("Código del barril")
 
 capacidad = ""
@@ -120,7 +126,7 @@ else:
 if st.button("Guardar Registro"):
     if codigo_barril and estado_barril and fecha_registro and responsable and codigo_valido:
         nuevo_registro = pd.DataFrame({
-            "Fecha": [fecha_registro],
+            "Fecha": [str(fecha_registro)],
             "Código": [codigo_barril],
             "Capacidad": [capacidad],
             "Estilo": [estilo_cerveza],
@@ -129,7 +135,6 @@ if st.button("Guardar Registro"):
             "Responsable": [responsable],
             "Observaciones": [observaciones]
         })
-
         try:
             df_existente = get_as_dataframe(sheet, evaluate_formulas=True)
             df_existente = df_existente.dropna(how='all')
@@ -139,7 +144,6 @@ if st.button("Guardar Registro"):
         df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
         sheet.clear()
         set_with_dataframe(sheet, df_actualizado)
-
         st.success("✅ Registro guardado correctamente en Google Sheets")
     else:
         if not codigo_valido:
