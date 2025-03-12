@@ -140,7 +140,7 @@ if st.button("Guardar Registro"):
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
-        st.success("✅ Registro guardado correctamente")
+        st.success(" Registro guardado correctamente")
     else:
         if not codigo_valido:
             st.warning("⚠️ El código del barril no cumple con el formato esperado.")
