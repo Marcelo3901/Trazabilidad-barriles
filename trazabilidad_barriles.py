@@ -1,16 +1,17 @@
-import json
+import streamlit as st
+import gspread
 from oauth2client.service_account import ServiceAccountCredentials
+import json
 
+# Definir el alcance de acceso
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-import os
 
-# Asegúrate de que st.secrets["gcp_service_account"] (o tu variable de entorno) esté configurada correctamente.
-# Si estás usando st.secrets, asegúrate de haber configurado el archivo .streamlit/secrets.toml o la sección de Secrets en Streamlit Cloud.
+# Obtener las credenciales desde st.secrets
+credentials_dict = st.secrets["gcp_service_account"]
 
-with open("credentials.json", "r") as f:
-    cred_dict = json.load(f)
+# Convertir el diccionario a JSON string y luego cargarlo con gspread
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, SCOPE)
 
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(cred_dict, SCOPE)
-print("Credenciales cargadas correctamente")
-
+# Autenticar con gspread
+gc = gspread.authorize(credentials)
 
