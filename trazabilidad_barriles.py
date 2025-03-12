@@ -2,106 +2,145 @@ import streamlit as st
 import gspread
 from google.oauth2.service_account import Credentials
 import pandas as pd
-from datetime import datetime
 
-# ✅ Configuración inicial de la app
-st.set_page_config(page_title="📦 Sistema de Trazabilidad de Barriles", layout="wide")
-st.title("📦 Sistema de Trazabilidad de Barriles")
+# -----------------------------
+# AUTENTICACIÓN CON GOOGLE SHEETS USANDO st.secrets
+# -----------------------------
+scope = [
+    "https://www.googleapis.com/auth/spreadsheets",
+    "https://www.googleapis.com/auth/drive"
+]
 
-# ✅ Autenticación con Google Sheets usando secrets.toml
-scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+# Carga de credenciales desde secrets.toml
 credentials_dict = st.secrets["gcp_service_account"]
 credentials = Credentials.from_service_account_info(credentials_dict, scopes=scope)
 
-# ✅ Conexión con Google Sheets
+# Autenticación con Google Sheets
 gc = gspread.authorize(credentials)
-spreadsheet_name = "trazabilidad_barriles"
-sh = gc.open(spreadsheet_name)
 
-# ✅ Hojas de trabajo
-sheet_registros = sh.worksheet("Registros")
-sheet_clientes = sh.worksheet("Clientes")
+# Abre la hoja de cálculo
+SPREADSHEET_NAME = "Trazabilidad_Barriles"
+sh = gc.open(SPREADSHEET_NAME)
 
-# ✅ Cargar datos existentes
-def cargar_datos():
-    registros = pd.DataFrame(sheet_registros.get_all_records())
-    clientes = pd.DataFrame(sheet_clientes.get_all_records())
-    return registros, clientes
+# -----------------------------
+# FUNCIONES AUXILIARES
+# -----------------------------
+def cargar_hoja(nombre):
+    try:
+        return sh.worksheet(nombre)
+    except:
+        return sh.add_worksheet(title=nombre, rows="1000", cols="20")
 
-registros_df, clientes_df = cargar_datos()
 
-# ✅ Formulario para ingreso de nuevo registro
-st.subheader("➕ Ingreso de Nuevo Registro")
+# -----------------------------
+# PÁGINA PRINCIPAL
+# -----------------------------
+st.set_page_config(page_title="📦 Sistema de Trazabilidad de Barriles", layout="wide")
+st.title("📦 Sistema de Trazabilidad de Barriles")
 
-codigo_barril = st.text_input("Código del Barril")
-if codigo_barril and not (codigo_barril.startswith("20") or codigo_barril.startswith("30") or codigo_barril.startswith("58")):
-    st.warning("El código del barril debe comenzar con 20, 30 o 58.")
+menu = ["Registro de Movimiento", "Consulta de Barriles", "Registro de Nuevo Cliente", "Eliminar Barril", "Eliminar Todos"]
+opcion = st.sidebar.selectbox("Selecciona una opción", menu)
 
-estilos_cerveza = ["IPA", "APA", "Pilsner", "Stout", "Amber Ale", "Porter", "Weiss"]
-cerveza = st.selectbox("Estilo de Cerveza", estilos_cerveza)
+# -----------------------------
+# ESTILOS Y LISTAS
+# -----------------------------
+estilos = ["IPA", "APA", "Lager", "Stout", "Amber Ale", "Blonde Ale", "Porter"]
+estados = ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"]
 
-cliente = st.selectbox("Cliente", clientes_df["Nombre"].unique())
-estado = st.selectbox("Estado del Barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+# -----------------------------
+# HOJAS
+# -----------------------------
+hoja_movimientos = cargar_hoja("Movimientos")
+hoja_clientes = cargar_hoja("Clientes")
 
-if st.button("Guardar Registro"):
-    if codigo_barril == "" or cliente == "" or cerveza == "" or estado == "":
-        st.error("Por favor completa todos los campos.")
-    else:
-        fecha = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        nuevo_registro = [fecha, codigo_barril, cerveza, cliente, estado]
-        sheet_registros.append_row(nuevo_registro)
-        st.success("✅ Registro guardado correctamente.")
+# -----------------------------
+# REGISTRO DE MOVIMIENTO
+# -----------------------------
+if opcion == "Registro de Movimiento":
+    st.subheader("📋 Registrar Movimiento de Barril")
 
-# ✅ Registro de nuevo cliente
-st.subheader("🧾 Registro de Nuevo Cliente")
-with st.form("nuevo_cliente"):
-    nombre_cliente = st.text_input("Nombre del Cliente")
-    direccion_cliente = st.text_input("Dirección")
-    submitted = st.form_submit_button("Agregar Cliente")
-    if submitted:
-        if nombre_cliente != "" and direccion_cliente != "":
-            sheet_clientes.append_row([nombre_cliente, direccion_cliente])
-            st.success("Cliente agregado exitosamente.")
+    codigo = st.text_input("Código del Barril (Ej: 20XXX, 30XXX, 58XXX)")
+    estilo = st.selectbox("Estilo de Cerveza", estilos)
+
+    clientes_data = hoja_clientes.get_all_records()
+    clientes_df = pd.DataFrame(clientes_data)
+    clientes = clientes_df["Cliente"].tolist() if not clientes_df.empty else []
+
+    cliente = st.selectbox("Cliente", clientes)
+    estado = st.selectbox("Estado del Barril", estados)
+
+    if st.button("Guardar Registro"):
+        if codigo.strip() == "" or cliente.strip() == "":
+            st.warning("⚠️ Código y Cliente son obligatorios.")
         else:
-            st.warning("Completa todos los campos.")
+            hoja_movimientos.append_row([codigo, estilo, cliente, estado])
+            st.success("✅ Registro guardado correctamente.")
 
-# ✅ Mostrar registros actuales
-st.subheader("📋 Registros Actuales")
-st.dataframe(registros_df, use_container_width=True)
+# -----------------------------
+# CONSULTA DE BARRILES
+# -----------------------------
+elif opcion == "Consulta de Barriles":
+    st.subheader("🔍 Consulta de Barriles")
+    datos = hoja_movimientos.get_all_records()
+    df = pd.DataFrame(datos)
 
-# ✅ Buscar barril por código
-st.subheader("🔍 Buscar Barril por Código")
-codigo_busqueda = st.text_input("Ingresar código a buscar")
-if st.button("Buscar"):
-    resultado = registros_df[registros_df["Codigo"] == codigo_busqueda]
-    if not resultado.empty:
-        st.write(resultado)
+    if not df.empty:
+        filtro = st.text_input("Buscar por Código o Cliente")
+        if filtro:
+            df = df[df.apply(lambda row: filtro.lower() in row.to_string().lower(), axis=1)]
+        st.dataframe(df)
     else:
-        st.warning("No se encontró ningún barril con ese código.")
+        st.info("No hay registros aún.")
 
-# ✅ Eliminar un barril específico (requiere contraseña)
-st.subheader("❌ Eliminar Registro Específico")
-password_delete = st.text_input("Contraseña para eliminar un registro", type="password")
-codigo_eliminar = st.text_input("Código del barril a eliminar")
+# -----------------------------
+# REGISTRO DE NUEVO CLIENTE
+# -----------------------------
+elif opcion == "Registro de Nuevo Cliente":
+    st.subheader("➕ Registrar Nuevo Cliente")
+    nuevo_cliente = st.text_input("Nombre del Cliente")
+    direccion = st.text_input("Dirección")
 
-if st.button("Eliminar Registro"):
-    if password_delete == "1234":  # Cambiar esta contraseña desde el código si se desea
-        df_filtrado = registros_df[registros_df["Codigo"] != codigo_eliminar]
-        sheet_registros.clear()
-        sheet_registros.append_row(["Fecha", "Codigo", "Cerveza", "Cliente", "Estado"])
-        for index, row in df_filtrado.iterrows():
-            sheet_registros.append_row(row.tolist())
-        st.success("Registro eliminado correctamente.")
-    else:
-        st.error("Contraseña incorrecta.")
+    if st.button("Guardar Cliente"):
+        if nuevo_cliente.strip() == "":
+            st.warning("⚠️ El nombre del cliente es obligatorio.")
+        else:
+            hoja_clientes.append_row([nuevo_cliente, direccion])
+            st.success("✅ Cliente registrado correctamente.")
 
-# ✅ Eliminar todos los registros (requiere otra contraseña)
-st.subheader("⚠️ Eliminar TODOS los Registros")
-password_total_delete = st.text_input("Contraseña para eliminar todos los registros", type="password")
-if st.button("Eliminar Todos los Registros"):
-    if password_total_delete == "admin123":  # Cambiar esta contraseña si se desea
-        sheet_registros.clear()
-        sheet_registros.append_row(["Fecha", "Codigo", "Cerveza", "Cliente", "Estado"])
-        st.success("Todos los registros han sido eliminados.")
-    else:
-        st.error("Contraseña incorrecta para eliminación total.")
+# -----------------------------
+# ELIMINAR UN BARRIL ESPECÍFICO (CON CONTRASEÑA)
+# -----------------------------
+elif opcion == "Eliminar Barril":
+    st.subheader("🗑️ Eliminar un Barril Específico")
+    codigo_eliminar = st.text_input("Código del barril a eliminar")
+    clave = st.text_input("Contraseña", type="password")
+
+    if st.button("Eliminar"):
+        if clave != "clave123":
+            st.error("❌ Contraseña incorrecta")
+        else:
+            datos = hoja_movimientos.get_all_records()
+            hoja_movimientos.clear()
+            hoja_movimientos.append_row(["Código", "Estilo", "Cliente", "Estado"])
+            eliminados = 0
+            for row in datos:
+                if row["Código"] != codigo_eliminar:
+                    hoja_movimientos.append_row([row["Código"], row["Estilo"], row["Cliente"], row["Estado"]])
+                else:
+                    eliminados += 1
+            st.success(f"✅ {eliminados} registro(s) eliminado(s).")
+
+# -----------------------------
+# ELIMINAR TODOS LOS REGISTROS (CON CONTRASEÑA)
+# -----------------------------
+elif opcion == "Eliminar Todos":
+    st.subheader("⚠️ Eliminar Todos los Registros")
+    clave = st.text_input("Contraseña", type="password")
+
+    if st.button("Eliminar Todo"):
+        if clave != "clave123":
+            st.error("❌ Contraseña incorrecta")
+        else:
+            hoja_movimientos.clear()
+            hoja_movimientos.append_row(["Código", "Estilo", "Cliente", "Estado"])
+            st.success("✅ Todos los registros han sido eliminados.")
