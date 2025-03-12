@@ -4,7 +4,6 @@ import os
 import base64
 import json
 import gspread
-from google.oauth2.service_account import Credentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date
 
