@@ -1,17 +1,10 @@
 import streamlit as st
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from datetime import datetime
 import json
 
-# Definir el alcance de acceso a Google Sheets
-SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-# Cargar credenciales desde secrets.toml o panel de Streamlit Cloud
-credentials_dict = st.secrets["gcp_service_account"]
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, SCOPE)
-gc = gspread.authorize(credentials)
 
 # Nombre de la hoja de cálculo
 SPREADSHEET_NAME = "TrazabilidadBarriles"
