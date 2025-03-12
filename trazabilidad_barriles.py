@@ -9,14 +9,14 @@ from datetime import date, datetime
 
 # Configuración de Streamlit
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
-st.write("Mis secrets:", st.secrets)
+
 st.markdown("<div style='font-size:48px; font-weight:bold; color:#2cc6c1; text-align:center;'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
 st.markdown("---")
 
 # ----------------------------------------
 # CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
 # ----------------------------------------
-
+st.write("Mis secrets:", st.secrets)
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 # Cargar credenciales desde st.secrets
 cred_json = json.dumps(st.secrets["gcp_service_account"])
