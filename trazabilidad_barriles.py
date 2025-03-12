@@ -49,13 +49,6 @@ add_bg_from_local('images/image (2).jpg')
 # -----------------------------
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
-try:
-    # Modo Streamlit Cloud (usando secrets)
-    credentials_dict = st.secrets["gcp_service_account"]
-except:
-    # Modo local (usando archivo credentials.json)
-    with open("credentials.json") as source:
-        credentials_dict = json.load(source)
 
 # URL de la hoja de cálculo
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY"
