@@ -1,28 +1,28 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import json
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date, datetime
 
+# Configuración de Streamlit
+st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
+st.markdown("<div style='font-size:48px; font-weight:bold; color:#2cc6c1; text-align:center;'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
+st.markdown("---")
+
 # ----------------------------------------
-# CONFIGURACIÓN DE GOOGLE SHEETS
+# CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
 # ----------------------------------------
 
-# Define el alcance (scope) de permisos necesarios
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-
-# Archivo de credenciales descargado desde Google Cloud
-CREDENTIALS_FILE = "credentials.json"  # Asegurate de que esté en la misma carpeta
-
-# URL de la hoja de cálculo (en este ejemplo usamos "Registro_Barriles")
-# Si deseas usar "Trazabilidad_Barriles", reemplazá la URL a continuación por:
-# "https://docs.google.com/spreadsheets/d/1vhE9hSS9WR_MHHVUPVXUlMef-TFRVUfFMBtQGOL15RQ/edit?gid=0"
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
-
-# Autenticarse y conectar con Google Sheets
-credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
+# Cargar credenciales desde st.secrets
+cred_json = json.dumps(st.secrets["gcp_service_account"])
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(cred_json), SCOPE)
 client = gspread.authorize(credentials)
+
+# Abre la hoja de cálculo por URL o nombre. Aquí uso la URL para evitar problemas de nombres.
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
 # ----------------------------------------
@@ -61,11 +61,6 @@ def eliminar_todo():
 # INTERFAZ DE STREAMLIT
 # ----------------------------------------
 
-st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
-st.markdown("<div style='font-size:48px; font-weight:bold; color:#2cc6c1; text-align:center;'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
-st.markdown("---")
-
-# Formulario de registro
 st.subheader("📋 Registro de Barril")
 
 fecha_registro = st.date_input("Fecha", date.today())
@@ -90,8 +85,7 @@ estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
 estilo_cerveza = st.selectbox("Estilo", estilos)
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
-clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", 
-            "Baruk", "Sandona Plaza", "El Barril", "La estiba las cuadras", "La estiba Villaflor"]
+clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", "Baruk", "Sandona Plaza", "El Barril", "La estiba las cuadras", "La estiba Villaflor"]
 cliente = "Planta Castiza"
 if estado_barril == "Despachado":
     cliente = st.selectbox("Cliente", clientes)
@@ -183,5 +177,6 @@ if not df.empty:
     st.download_button(label="Descargar reporte en formato CSV", data=csv, file_name="registro_barriles.csv", mime="text/csv")
 else:
     st.info("No hay registros disponibles para descargar.")
+
 
 
