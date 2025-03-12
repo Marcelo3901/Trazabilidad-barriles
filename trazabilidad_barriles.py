@@ -134,8 +134,7 @@ if st.button("Guardar Registro"):
                 set_with_dataframe(sheet, df_actualizado)
 
             
-            from oauth2client.service_account import ServiceAccountCredentials
-            from gspread_dataframe import set_with_dataframe
+    
 
 # ------------------ CONEXIÓN ------------------
             scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
