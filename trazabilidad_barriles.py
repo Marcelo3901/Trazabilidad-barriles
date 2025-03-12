@@ -50,9 +50,6 @@ add_bg_from_local('images/image (2).jpg')
 scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
 
 
-# URL de la hoja de cálculo
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY"
-sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
 # -----------------------------
 # INTERFAZ DE LA APP
