@@ -134,12 +134,7 @@ if st.button("Guardar Registro"):
                 set_with_dataframe(sheet, df_actualizado)
 
             
-    
 
-# ------------------ CONEXIÓN ------------------
-            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-            credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-            client = gspread.authorize(credentials)
     
 # Abre tu hoja por URL o nombre
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0"
