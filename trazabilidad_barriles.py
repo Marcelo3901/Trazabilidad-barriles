@@ -4,7 +4,12 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date, datetime
-
+streamlit
+pandas
+gspread
+gspread_dataframe
+oauth2client
+qrcode[pil]
 # ----------------------------------------
 # CONFIGURACIÓN DE GOOGLE SHEETS
 # ----------------------------------------
