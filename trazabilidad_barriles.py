@@ -134,12 +134,13 @@ if st.button("Guardar Registro"):
             "Responsable": [responsable],
             "Observaciones": [observaciones]
         })
-       try:
-    registros_existentes = sheet.get_all_records()
-    df_existente = pd.DataFrame(registros_existentes)
+       if os.path.exists("registro_barriles.csv"):
+    df_existente = pd.read_csv("registro_barriles.csv")
     df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
-except:
+else:
     df_actualizado = nuevo_registro
+df_actualizado.to_csv("registro_barriles.csv", index=False)
+
 
 # Limpia la hoja y vuelve a escribir el contenido completo
 sheet.clear()
