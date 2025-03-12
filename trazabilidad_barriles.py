@@ -1,59 +1,120 @@
 import streamlit as st
 import pandas as pd
+import os
+import base64
+from datetime import date
 import gspread
-from oauth2client.service_account import ServiceAccountCredentials
+from google.oauth2.service_account import Credentials
 from gspread_dataframe import get_as_dataframe, set_with_dataframe
 
-# Configurar la página
-st.set_page_config(page_title="Trazabilidad Barriles", layout="centered")
-st.title("🍺 Trazabilidad de Barriles")
+# ---------------- CONFIGURACIÓN DE PÁGINA Y ESTILO ----------------
+st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
+st.markdown("""
+    <style>
+    @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+    .stApp {
+        font-family: 'Roboto', sans-serif;
+        color: #ffffff;
+        padding: 1rem;
+        font-size: 18px !important;
+    }
+    </style>
+""", unsafe_allow_html=True)
 
-# Conexión con Google Sheets
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+def add_bg_from_local(image_file):
+    with open(image_file, "rb") as image_file:
+        encoded_string = base64.b64encode(image_file.read()).decode()
+    st.markdown(f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/jpeg;base64,{encoded_string}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        </style>
+    """, unsafe_allow_html=True)
+
+if os.path.exists('images/image (2).jpg'):
+    add_bg_from_local('images/image (2).jpg')
+
+# ---------------- AUTENTICACIÓN GOOGLE SHEETS ----------------
+SCOPE = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
+CREDENTIALS_FILE = "credentials.json"
 
 try:
-    credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+    credentials = Credentials.from_service_account_file(CREDENTIALS_FILE, scopes=SCOPE)
     client = gspread.authorize(credentials)
-    sheet = client.open_by_url("https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0").sheet1
+    SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0"
+    sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 except Exception as e:
     st.error(f"❌ Error al conectar con Google Sheets: {e}")
     st.stop()
 
-# Formulario
-fecha = st.date_input("Fecha")
-codigo = st.text_input("Código del barril")
+# ---------------- FORMULARIO DE REGISTRO ----------------
+st.markdown("<div class='big-title'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
+st.markdown("<h2 style='font-size:32px;'>📋 Registro de Barril</h2>", unsafe_allow_html=True)
+
+fecha_registro = st.date_input("Fecha")
+codigo_barril = st.text_input("Código del barril")
+
 capacidad = ""
-if codigo.startswith("20"): capacidad = "20L"
-elif codigo.startswith("30"): capacidad = "30L"
-elif codigo.startswith("58"): capacidad = "58L"
+codigo_valido = False
+if codigo_barril.startswith("20") and len(codigo_barril) == 5:
+    capacidad = "20L"
+    codigo_valido = True
+elif codigo_barril.startswith("30") and len(codigo_barril) == 5:
+    capacidad = "30L"
+    codigo_valido = True
+elif codigo_barril.startswith("58") and len(codigo_barril) == 5:
+    capacidad = "58L"
+    codigo_valido = True
 
-estilo = st.selectbox("Estilo de cerveza", ["Golden", "Amber", "Stout", "IPA", "Otros"])
-estado = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
-cliente = st.text_input("Cliente")
-responsable = st.selectbox("Responsable", ["Marcelo", "Operario 1", "Operario 2"])
-obs = st.text_area("Observaciones")
+estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+           "Session IPA", "IPA", "Maracuya", "Barley Wine", "Trigo", "Catharina Sour",
+           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+estilo_cerveza = st.selectbox("Estilo", estilos)
+estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
-if st.button("Guardar"):
-    if not codigo:
-        st.warning("⚠️ Código obligatorio")
-    else:
-        nuevo = pd.DataFrame({
-            "Fecha": [fecha],
-            "Código": [codigo],
+clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", "Baruk", "Sandona Plaza",
+            "El Barril", "La estiba las cuadras", "La estiba Villaflor"]
+cliente = "Planta Castiza"
+if estado_barril == "Despachado":
+    cliente = st.selectbox("Cliente", clientes)
+
+responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
+responsable = st.selectbox("Responsable", responsables)
+
+observaciones = ""
+if estado_barril == "Sucio":
+    observaciones = f"Último cliente: {cliente}"
+else:
+    observaciones = st.text_area("Observaciones", "")
+
+if st.button("Guardar Registro"):
+    if codigo_barril and estado_barril and fecha_registro and responsable and codigo_valido:
+        nuevo_registro = pd.DataFrame({
+            "Fecha": [fecha_registro],
+            "Código": [codigo_barril],
             "Capacidad": [capacidad],
-            "Estilo": [estilo],
-            "Estado": [estado],
+            "Estilo": [estilo_cerveza],
+            "Estado": [estado_barril],
             "Cliente": [cliente],
             "Responsable": [responsable],
-            "Observaciones": [obs]
+            "Observaciones": [observaciones]
         })
         try:
-            existente = get_as_dataframe(sheet)
-            existente = existente.dropna(how='all')
+            df_existente = get_as_dataframe(sheet, evaluate_formulas=True)
+            df_existente = df_existente.dropna(how='all')
         except:
-            existente = pd.DataFrame()
-
-        actualizado = pd.concat([existente, nuevo], ignore_index=True)
+            df_existente = pd.DataFrame()
+        df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
         sheet.clear()
-        set_with_dataframe(sheet, actualizado)
-        st.success("✅ Registro guardado en Google Sheets")
+        set_with_dataframe(sheet, df_actualizado)
+        st.success("✅ Registro guardado correctamente")
+    else:
+        if not codigo_valido:
+            st.warning("⚠️ El código del barril no cumple con el formato esperado.")
+        else:
+            st.warning("⚠️ Por favor, completa los campos obligatorios")
