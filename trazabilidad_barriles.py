@@ -7,14 +7,6 @@ import gspread
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe
 
-# ------------------ CONEXIÓN ------------------
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-client = gspread.authorize(credentials)
-
-# Abre tu hoja por URL o nombre
-SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0"
-sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 st.markdown("""
@@ -134,7 +126,19 @@ if st.button("Guardar Registro"):
             df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
         else:
             df_actualizado = nuevo_registro
-        df_actualizado.to_csv("registro_barriles.csv", index=False)
+            import gspread
+            from oauth2client.service_account import ServiceAccountCredentials
+            from gspread_dataframe import set_with_dataframe
+
+# ------------------ CONEXIÓN ------------------
+            scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+            credentials = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
+            client = gspread.authorize(credentials)
+    
+# Abre tu hoja por URL o nombre
+SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit#gid=0"
+sheet = client.open_by_url(SPREADSHEET_URL).sheet1
+
         st.success("✅ Registro guardado correctamente")
     else:
         if not codigo_valido:
