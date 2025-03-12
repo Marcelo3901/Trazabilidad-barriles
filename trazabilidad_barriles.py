@@ -8,12 +8,16 @@ from datetime import date, datetime
 # ----------------------------------------
 # CONFIGURACIÓN DE GOOGLE SHEETS
 # ----------------------------------------
+import json
+# Cargar las credenciales desde st.secrets
+cred_json = json.dumps(st.secrets["gcp_service_account"])
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(cred_json), SCOPE)
 
 # Define el alcance (scope) de permisos necesarios
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
 # Archivo de credenciales descargado desde Google Cloud
-CREDENTIALS_FILE = "credentials.json"  # Asegurate de que esté en la misma carpeta
+  # Asegurate de que esté en la misma carpeta
 
 # URL de la hoja de cálculo (en este ejemplo usamos "Registro_Barriles")
 # Si deseas usar "Trazabilidad_Barriles", reemplazá la URL a continuación por:
@@ -21,7 +25,7 @@ CREDENTIALS_FILE = "credentials.json"  # Asegurate de que esté en la misma carp
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
 
 # Autenticarse y conectar con Google Sheets
-credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
+
 client = gspread.authorize(credentials)
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
