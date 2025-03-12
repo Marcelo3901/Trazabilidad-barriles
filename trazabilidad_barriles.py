@@ -16,7 +16,7 @@ st.markdown("---")
 # ----------------------------------------
 # CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
 # ----------------------------------------
-st.write("Mis secrets:", st.secrets)
+
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 # Cargar credenciales desde st.secrets
 cred_json = json.dumps(st.secrets["gcp_service_account"])
@@ -26,7 +26,7 @@ client = gspread.authorize(credentials)
 # Abre la hoja de cálculo por URL o nombre. Aquí uso la URL para evitar problemas de nombres.
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
-
+st.write("Mis secrets:", st.secrets)
 # ----------------------------------------
 # FUNCIONES AUXILIARES PARA GOOGLE SHEETS
 # ----------------------------------------
