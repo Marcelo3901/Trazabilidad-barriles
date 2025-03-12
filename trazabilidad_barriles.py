@@ -3,6 +3,9 @@ import pandas as pd
 import os
 import base64
 from datetime import date
+import gspread
+from oauth2client.service_account import ServiceAccountCredentials
+from gspread_dataframe import set_with_dataframe
 
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 st.markdown("""
