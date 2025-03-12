@@ -1,63 +1,28 @@
 import streamlit as st
 import pandas as pd
+from google.cloud import firestore
 import os
-import base64
-import json
-import gspread
-from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date
 
-# -----------------------------
-# CONFIGURACIÓN STREAMLIT
-# -----------------------------
+# ============================
+# CONFIGURACIÓN FIRESTORE
+# ============================
+os.environ["GOOGLE_APPLICATION_CREDENTIALS"] = "credentials.json"
+
+try:
+    db = firestore.Client()
+    st.success("✅ Conectado a Firestore correctamente")
+except Exception as e:
+    st.error(f"❌ Error al conectar con Firestore: {e}")
+
+# ============================
+# INTERFAZ DE USUARIO
+# ============================
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
-st.markdown("""
-    <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
-    .stApp {
-        font-family: 'Roboto', sans-serif;
-        color: #ffffff;
-        padding: 1rem;
-        font-size: 18px !important;
-    }
-    </style>
-""", unsafe_allow_html=True)
+st.title("🍺 Trazabilidad Barriles Castiza")
 
-# -----------------------------
-# FONDO PERSONALIZADO (opcional)
-# -----------------------------
-def add_bg_from_local(image_file):
-    if os.path.exists(image_file):
-        with open(image_file, "rb") as f:
-            encoded_string = base64.b64encode(f.read()).decode()
-        st.markdown(f"""
-            <style>
-            .stApp {{
-                background-image: url("data:image/jpeg;base64,{encoded_string}");
-                background-size: cover;
-                background-position: center;
-                background-repeat: no-repeat;
-                background-attachment: fixed;
-            }}
-            </style>
-        """, unsafe_allow_html=True)
-
-add_bg_from_local('images/image (2).jpg')
-
-# -----------------------------
-# AUTENTICACIÓN GOOGLE SHEETS
-# -----------------------------
-scope = ["https://www.googleapis.com/auth/spreadsheets", "https://www.googleapis.com/auth/drive"]
-
-
-
-# -----------------------------
-# INTERFAZ DE LA APP
-# -----------------------------
-st.markdown("<div class='big-title'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
-
-st.markdown("<h2 style='font-size:32px;'>📋 Registro de Barril</h2>", unsafe_allow_html=True)
-fecha_registro = st.date_input("Fecha")
+st.markdown("## 📋 Registro de Barril")
+fecha_registro = st.date_input("Fecha", value=date.today())
 codigo_barril = st.text_input("Código del barril")
 
 capacidad = ""
@@ -76,6 +41,7 @@ estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuya", "Barley Wine", "Trigo", "Catharina Sour",
            "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
 estilo_cerveza = st.selectbox("Estilo", estilos)
+
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", "Baruk", "Sandona Plaza",
@@ -93,41 +59,32 @@ if estado_barril == "Sucio":
 else:
     observaciones = st.text_area("Observaciones", "")
 
+# ============================
+# GUARDAR REGISTRO EN FIRESTORE
+# ============================
+def guardar_registro_en_firestore(datos):
+    try:
+        doc_ref = db.collection("registros_barriles").document()
+        doc_ref.set(datos)
+        st.success("✅ Registro guardado en Firestore correctamente")
+    except Exception as e:
+        st.error(f"❌ Error al guardar en Firestore: {e}")
+
 if st.button("Guardar Registro"):
     if codigo_barril and estado_barril and fecha_registro and responsable and codigo_valido:
-        nuevo_registro = pd.DataFrame({
-            "Fecha": [fecha_registro],
-            "Código": [codigo_barril],
-            "Capacidad": [capacidad],
-            "Estilo": [estilo_cerveza],
-            "Estado": [estado_barril],
-            "Cliente": [cliente],
-            "Responsable": [responsable],
-            "Observaciones": [observaciones]
-        })
-
-        try:
-            df_existente = get_as_dataframe(sheet, evaluate_formulas=True).dropna(how='all')
-        except:
-            df_existente = pd.DataFrame()
-
-        df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
-        sheet.clear()
-        set_with_dataframe(sheet, df_actualizado)
-        st.success("✅ Registro guardado correctamente")
+        datos = {
+            "fecha": str(fecha_registro),
+            "codigo": codigo_barril,
+            "capacidad": capacidad,
+            "estilo": estilo_cerveza,
+            "estado": estado_barril,
+            "cliente": cliente,
+            "responsable": responsable,
+            "observaciones": observaciones
+        }
+        guardar_registro_en_firestore(datos)
     else:
         if not codigo_valido:
             st.warning("⚠️ El código del barril no cumple con el formato esperado.")
         else:
-            st.warning("⚠️ Por favor, completa los campos obligatorios")
-
-# -----------------------------
-# CONSULTAR DATOS (opcional)
-# -----------------------------
-st.markdown("---")
-st.markdown("<h2 style='font-size:32px;'>📑 Reporte General</h2>", unsafe_allow_html=True)
-try:
-    df = get_as_dataframe(sheet).dropna(how='all')
-    st.dataframe(df)
-except:
-    st.info("No hay registros para mostrar aún")
+            st.warning("⚠️ Por favor, completa todos los campos requeridos.")
