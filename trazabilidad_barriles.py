@@ -13,6 +13,8 @@ st.markdown("---")
 
 CREDENTIALS_FILE = "credentials.json"
 credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
+CREDENTIALS_FILE = "credentials.json"
+
 
 # ----------------------------------------
 # CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
