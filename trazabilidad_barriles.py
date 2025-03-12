@@ -5,13 +5,13 @@ import json
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date, datetime
-st.write("Mis secrets:", st.secrets)
+
 
 # Configuración de Streamlit
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 st.markdown("<div style='font-size:48px; font-weight:bold; color:#2cc6c1; text-align:center;'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
 st.markdown("---")
-
+st.write("Mis secrets:", st.secrets)
 # ----------------------------------------
 # CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
 # ----------------------------------------
