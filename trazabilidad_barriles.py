@@ -7,12 +7,6 @@ from oauth2client.service_account import ServiceAccountCredentials
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-# Leer el contenido del JSON desde la variable de entorno "GCP_CREDENTIALS"
-cred_json_str = os.environ.get("GCP_CREDENTIALS")
-if not cred_json_str:
-    raise ValueError("La variable de entorno 'GCP_CREDENTIALS' no está definida. Por favor, configúrala.")
-
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(cred_json_str), SCOPE)
 
 # 📌 CONEXIÓN CON GOOGLE SHEETS
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
