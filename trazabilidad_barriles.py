@@ -1,25 +1,19 @@
 import streamlit as st
 import pandas as pd
 import gspread
+import os
 import json
-from oauth2client.service_account import ServiceAccountCredentials
-from gspread_dataframe import set_with_dataframe
-from datetime import date
-
-# 📌 Configuración inicial de la app
-st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
-
-# 🔹 Título
-st.markdown("<h1 style='text-align: center; color: #2cc6c1;'>🍺 TRAZABILIDAD BARRILES CASTIZA</h1>", unsafe_allow_html=True)
 from oauth2client.service_account import ServiceAccountCredentials
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
-# Lee el contenido del JSON desde la variable de entorno
+# Leer el contenido del JSON desde la variable de entorno "GCP_CREDENTIALS"
 cred_json_str = os.environ.get("GCP_CREDENTIALS")
 if not cred_json_str:
-    raise ValueError("La variable de entorno 'GCP_CREDENTIALS' no está definida")
+    raise ValueError("La variable de entorno 'GCP_CREDENTIALS' no está definida. Por favor, configúrala.")
+
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(cred_json_str), SCOPE)
+
 # 📌 CONEXIÓN CON GOOGLE SHEETS
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
