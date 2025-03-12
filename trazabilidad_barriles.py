@@ -15,7 +15,6 @@ st.markdown("---")
 # Conexión con Google Sheets
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 credentials = ServiceAccountCredentials.from_json_keyfile_dict(st.secrets["gcp_service_account"], SCOPE)
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(cred_json), SCOPE)
 client = gspread.authorize(credentials)
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
