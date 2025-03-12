@@ -121,11 +121,18 @@ if st.button("Guardar Registro"):
             "Responsable": [responsable],
             "Observaciones": [observaciones]
         })
-        if os.path.exists("registro_barriles.csv"):
-            df_existente = pd.read_csv("registro_barriles.csv")
+        from gspread_dataframe import get_as_dataframe, set_with_dataframe
+
+        try:
+                df_existente = get_as_dataframe(sheet, evaluate_formulas=True)
+                df_existente = df_existente.dropna(how='all')
+        except:
+                df_existente = pd.DataFrame()
+
             df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
-        else:
-            df_actualizado = nuevo_registro
+                sheet.clear()
+                set_with_dataframe(sheet, df_actualizado)
+
             import gspread
             from oauth2client.service_account import ServiceAccountCredentials
             from gspread_dataframe import set_with_dataframe
