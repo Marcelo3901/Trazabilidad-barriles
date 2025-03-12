@@ -5,6 +5,7 @@ import json
 from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date, datetime
+st.write("Mis secrets:", st.secrets)
 
 # Configuración de Streamlit
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
