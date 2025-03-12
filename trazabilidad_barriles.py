@@ -11,7 +11,7 @@ st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 
 # 🔹 Título
 st.markdown("<h1 style='text-align: center; color: #2cc6c1;'>🍺 TRAZABILIDAD BARRILES CASTIZA</h1>", unsafe_allow_html=True)
-om oauth2client.service_account import ServiceAccountCredentials
+from oauth2client.service_account import ServiceAccountCredentials
 
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
 
