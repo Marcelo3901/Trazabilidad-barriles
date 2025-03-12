@@ -1,131 +1,121 @@
 import streamlit as st
 import gspread
+from oauth2client.service_account import ServiceAccountCredentials
 import pandas as pd
 from datetime import datetime
 import json
 
+# ------------------------ CONFIGURACIÓN INICIAL ------------------------
+st.set_page_config(page_title="Trazabilidad de Barriles", layout="wide")
+st.title("📦 Sistema de Trazabilidad de Barriles")
 
+# ------------------------ CREDENCIALES DESDE SECRETS ------------------------
+scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
+credentials_dict = st.secrets["gcp_service_account"]
+credentials = ServiceAccountCredentials.from_json_keyfile_dict(credentials_dict, scope)
+gc = gspread.authorize(credentials)
 
-# Nombre de la hoja de cálculo
+# ------------------------ DATOS DESDE GOOGLE SHEETS ------------------------
 SPREADSHEET_NAME = "TrazabilidadBarriles"
+worksheet_registros = gc.open(SPREADSHEET_NAME).worksheet("Registros")
+worksheet_clientes = gc.open(SPREADSHEET_NAME).worksheet("Clientes")
 
-# Abrir hoja de cálculo
-sh = gc.open(SPREADSHEET_NAME)
-worksheet = sh.worksheet("Registros")
-clientes_sheet = sh.worksheet("Clientes")
-
-# Función para cargar registros existentes
+# ------------------------ FUNCIONES AUXILIARES ------------------------
 def cargar_datos():
-    try:
-        data = worksheet.get_all_records()
-        return pd.DataFrame(data)
-    except Exception as e:
-        st.error(f"Error al cargar los datos: {e}")
-        return pd.DataFrame()
+    data = worksheet_registros.get_all_records()
+    return pd.DataFrame(data)
 
-# Función para guardar nuevo registro
-def guardar_registro(registro):
-    worksheet.append_row(registro)
-
-# Función para cargar lista de clientes
 def cargar_clientes():
-    clientes = clientes_sheet.get_all_records()
-    return [f"{c['Cliente']} - {c['Dirección']}" for c in clientes]
+    data = worksheet_clientes.get_all_records()
+    return pd.DataFrame(data)
 
-# Función para guardar nuevo cliente
-def guardar_cliente(cliente, direccion):
-    clientes_sheet.append_row([cliente, direccion])
+def guardar_registro(registro):
+    worksheet_registros.append_row(registro)
 
-# Encabezado
-st.title("📦 Trazabilidad de Barriles - Cervecería")
+def guardar_cliente(cliente):
+    worksheet_clientes.append_row(cliente)
 
-# Menú principal
-menu = st.sidebar.selectbox("Seleccionar opción", ["Registro de Barril", "Ver Registros", "Buscar Barril", "Eliminar Barril", "Eliminar Todos los Registros", "Registro de Nuevo Cliente"])
+# ------------------------ FORMULARIO PRINCIPAL ------------------------
+st.subheader("Registrar movimiento de barril")
 
-# Listado de estilos
-estilos = ["IPA", "APA", "Porter", "Stout", "Lager", "Amber Ale", "Honey", "Red Ale"]
+estilos = ["IPA", "APA", "Stout", "Lager", "Amber Ale", "Porter"]
+estados = ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"]
 
-# Listado de estados posibles
-estados = ["Despachado", "Lavado en Bodega", "Sucio", "En Cuarto Frío"]
+df_clientes = cargar_clientes()
+clientes = df_clientes["Nombre"].tolist() if not df_clientes.empty else []
 
-# Registro de Barril
-if menu == "Registro de Barril":
-    st.subheader("Registrar Movimiento de Barril")
+with st.form("formulario_registro"):
+    codigo = st.text_input("Código del barril (Ej: 20XXX)")
+    estilo = st.selectbox("Estilo de cerveza", estilos)
+    cliente = st.selectbox("Cliente", clientes)
+    estado = st.selectbox("Estado del barril", estados)
+    fecha = st.date_input("Fecha", datetime.today())
+    hora = st.time_input("Hora", datetime.now().time())
+    enviado = st.form_submit_button("Guardar registro")
 
-    codigo = st.text_input("Código del Barril")
-    estilo = st.selectbox("Estilo de Cerveza", estilos)
-    cliente = st.selectbox("Cliente", cargar_clientes())
-    estado = st.selectbox("Estado del Barril", estados)
-    fecha = datetime.today().strftime('%Y-%m-%d')
-
-    if st.button("Guardar Registro"):
-        if codigo and estilo and cliente and estado:
-            if codigo.startswith("20") or codigo.startswith("30") or codigo.startswith("58"):
-                guardar_registro([fecha, codigo, estilo, cliente, estado])
-                st.success("✅ Registro guardado exitosamente")
-            else:
-                st.warning("⚠️ El código debe comenzar con 20, 30 o 58 según el tipo de barril")
+    if enviado:
+        if codigo.startswith("20") or codigo.startswith("30") or codigo.startswith("58"):
+            registro = [str(codigo), estilo, cliente, estado, str(fecha), str(hora)]
+            guardar_registro(registro)
+            st.success("✅ Registro guardado correctamente")
         else:
-            st.warning("⚠️ Complete todos los campos")
+            st.error("❌ Código inválido. Debe comenzar con 20, 30 o 58")
 
-# Ver registros
-elif menu == "Ver Registros":
-    st.subheader("📄 Registros de Barriles")
-    df = cargar_datos()
-    st.dataframe(df)
+# ------------------------ REGISTRO DE NUEVO CLIENTE ------------------------
+st.subheader("Registrar nuevo cliente")
 
-# Buscar barril
-elif menu == "Buscar Barril":
-    st.subheader("🔍 Buscar Barril por Código")
-    codigo_buscar = st.text_input("Ingrese el código del barril a buscar")
-    if st.button("Buscar"):
-        df = cargar_datos()
-        resultado = df[df["Código"] == codigo_buscar]
-        if not resultado.empty:
-            st.dataframe(resultado)
+with st.form("formulario_cliente"):
+    nuevo_cliente = st.text_input("Nombre del nuevo cliente")
+    direccion = st.text_input("Dirección")
+    registrar_cliente = st.form_submit_button("Guardar cliente")
+
+    if registrar_cliente:
+        if nuevo_cliente:
+            guardar_cliente([nuevo_cliente, direccion])
+            st.success("✅ Cliente guardado correctamente. Recarga la página para verlo en el formulario de registro.")
         else:
-            st.warning("⚠️ No se encontró ese código")
+            st.error("❌ Ingresa al menos el nombre del cliente")
 
-# Eliminar un barril específico
-elif menu == "Eliminar Barril":
-    st.subheader("🗑 Eliminar Barril por Código")
-    password = st.text_input("Ingrese contraseña para eliminar", type="password")
-    if password == "eliminar123":
-        codigo_eliminar = st.text_input("Código del barril a eliminar")
-        if st.button("Eliminar"):
-            df = cargar_datos()
-            nuevo_df = df[df["Código"] != codigo_eliminar]
-            if len(nuevo_df) < len(df):
-                worksheet.clear()
-                worksheet.append_row(df.columns.tolist())
-                for i in nuevo_df.itertuples(index=False):
-                    worksheet.append_row(list(i))
-                st.success("✅ Barril eliminado")
-            else:
-                st.warning("⚠️ Código no encontrado")
+# ------------------------ VISUALIZAR REGISTROS ------------------------
+st.subheader("📋 Registros actuales")
+df = cargar_datos()
+st.dataframe(df, use_container_width=True)
+
+# ------------------------ BUSCAR POR CÓDIGO ------------------------
+st.subheader("🔍 Buscar información de un barril por código")
+codigo_busqueda = st.text_input("Buscar código de barril")
+if codigo_busqueda:
+    resultado = df[df["Código"] == codigo_busqueda]
+    if not resultado.empty:
+        st.table(resultado)
     else:
-        st.info("🔐 Ingrese contraseña válida para continuar")
+        st.warning("⚠️ No se encontró información para ese código")
 
-# Eliminar todos los registros
-elif menu == "Eliminar Todos los Registros":
-    st.subheader("⚠️ Eliminar TODOS los Registros")
-    password = st.text_input("Ingrese contraseña de administrador", type="password")
-    if password == "admin123":
-        if st.button("Eliminar Todo"):
-            worksheet.clear()
-            worksheet.append_row(["Fecha", "Código", "Estilo", "Cliente", "Estado"])
-            st.success("✅ Todos los registros han sido eliminados")
-    else:
-        st.info("🔐 Ingrese contraseña válida para continuar")
+# ------------------------ ELIMINAR REGISTROS (protección con contraseña) ------------------------
+st.subheader("⚠️ Eliminar registros")
+PASS_ELIMINAR = "1234"
+PASS_ELIMINAR_TODO = "5678"
 
-# Registro de nuevo cliente
-elif menu == "Registro de Nuevo Cliente":
-    st.subheader("👤 Agregar Nuevo Cliente")
-    nuevo_cliente = st.text_input("Nombre del cliente")
-    direccion = st.text_input("Dirección del cliente")
-    if st.button("Guardar Cliente"):
-        if nuevo_cliente and direccion:
-            guardar_cliente(nuevo_cliente, direccion)
-            st.success("✅ Cliente agregado")
+with st.expander("Eliminar un registro específico"):
+    pass_input = st.text_input("Contraseña", type="password")
+    codigo_eliminar = st.text_input("Código del barril a eliminar")
+    if st.button("Eliminar"):
+        if pass_input == PASS_ELIMINAR:
+            df_filtrado = df[df["Código"] != codigo_eliminar]
+            worksheet_registros.clear()
+            worksheet_registros.append_row(df.columns.tolist())
+            for row in df_filtrado.values.tolist():
+                worksheet_registros.append_row(row)
+            st.success("✅ Registro eliminado")
         else:
-            st.warning("⚠️ Complete todos los campos")
+            st.error("❌ Contraseña incorrecta")
+
+with st.expander("Eliminar TODOS los registros"):
+    pass_all = st.text_input("Contraseña para eliminar todo", type="password")
+    if st.button("Eliminar todos los registros"):
+        if pass_all == PASS_ELIMINAR_TODO:
+            worksheet_registros.clear()
+            worksheet_registros.append_row(["Código", "Estilo", "Cliente", "Estado", "Fecha", "Hora"])
+            st.success("✅ Todos los registros fueron eliminados")
+        else:
+            st.error("❌ Contraseña incorrecta")
