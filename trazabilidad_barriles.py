@@ -129,7 +129,7 @@ if st.button("Guardar Registro"):
         except:
                 df_existente = pd.DataFrame()
 
-            df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
+                df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
                 sheet.clear()
                 set_with_dataframe(sheet, df_actualizado)
 
