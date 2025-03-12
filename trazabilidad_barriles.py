@@ -6,27 +6,21 @@ from oauth2client.service_account import ServiceAccountCredentials
 from gspread_dataframe import set_with_dataframe, get_as_dataframe
 from datetime import date, datetime
 
-# Configuración de Streamlit
 st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
 st.markdown("<div style='font-size:48px; font-weight:bold; color:#2cc6c1; text-align:center;'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
 st.markdown("---")
 
-CREDENTIALS_FILE = "credentials.json"
-credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
-CREDENTIALS_FILE = "credentials.json"
-
-
-# ----------------------------------------
-# CONEXIÓN CON GOOGLE SHEETS USANDO st.secrets
-# ----------------------------------------
-
+# Definir el alcance de Google Sheets
 SCOPE = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-# Cargar credenciales desde st.secrets
-cred_json = json.dumps(st.secrets["gcp_service_account"])
-credentials = ServiceAccountCredentials.from_json_keyfile_dict(json.loads(cred_json), SCOPE)
+
+# Definir la variable CREDENTIALS_FILE
+CREDENTIALS_FILE = "credentials.json"  # Asegúrate de que este archivo esté en la misma carpeta
+
+# Autenticarse con Google Sheets usando el archivo local de credenciales
+credentials = ServiceAccountCredentials.from_json_keyfile_name(CREDENTIALS_FILE, SCOPE)
 client = gspread.authorize(credentials)
 
-# Abre la hoja de cálculo por URL o nombre. Aquí uso la URL para evitar problemas de nombres.
+# Abrir la hoja de cálculo por URL
 SPREADSHEET_URL = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/edit?gid=0"
 sheet = client.open_by_url(SPREADSHEET_URL).sheet1
 
