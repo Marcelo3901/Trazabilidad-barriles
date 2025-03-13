@@ -1,103 +1,128 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
+from urllib.parse import urlencode
 
-st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
+st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
+st.title("🍺 Sistema de Trazabilidad de Barriles - Castiza")
 
-# ------------------ FORMULARIO GOOGLE ------------------
-FORM_URL = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-
-FIELDS = {
-    "codigo": "entry.311770370",
-    "estilo": "entry.1283669263",
-    "estado": "entry.1545499818",
-    "cliente": "entry.91059345",
-    "responsable": "entry.1661747572",
-    "observaciones": "entry.1465957833"
-}
-
-# ------------------ LISTA DE CLIENTES ------------------
-if "clientes" not in st.session_state:
-    st.session_state.clientes = [
-        "Castiza Av. Estudiantes",
-        "Bendita Birra CC sebastian Belalcazar",
-        "Baruk",
-        "Sandona Plaza",
-        "El Barril",
-        "La estiba las cuadras",
-        "La estiba Villaflor"
-    ]
-
-st.title("🍺 Sistema de Trazabilidad de Barriles")
+# ------------------------------
+# FORMULARIO DE REGISTRO DE BARRILES
+# ------------------------------
 
 st.header("📋 Registro de Barril")
-codigo_barril = st.text_input("Código del barril (5 dígitos, comienza por 20, 30 o 58)")
 
+codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
+
+# Validación del código del barril
 codigo_valido = False
-if len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]:
+if codigo_barril and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]:
     codigo_valido = True
 
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
-           "Session IPA", "IPA", "Maracuya", "Barley Wine", "Trigo",
-           "Catharina Sour", "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
-estilo = st.selectbox("Estilo", estilos)
+           "Session IPA", "IPA", "Maracuya", "Barley Wine", "Trigo", "Catharina Sour",
+           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+estilo_cerveza = st.selectbox("Estilo", estilos)
 
-estado = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
-if estado == "Despachado":
-    cliente = st.selectbox("Cliente", st.session_state.clientes)
-else:
-    cliente = "Planta Castiza"
+# Carga dinámica de clientes desde archivo local
+try:
+    df_clientes = pd.read_csv("clientes.csv")
+    lista_clientes = df_clientes["Cliente"].tolist()
+except:
+    lista_clientes = []
+
+cliente = "Planta Castiza"
+if estado_barril == "Despachado":
+    cliente = st.selectbox("Cliente", lista_clientes)
 
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
 responsable = st.selectbox("Responsable", responsables)
 
-if estado == "Sucio":
-    observaciones = f"Último cliente: {cliente}"
-else:
-    observaciones = st.text_area("Observaciones")
+observaciones = st.text_area("Observaciones")
 
+# Envío al formulario de Google Forms
 if st.button("Guardar Registro"):
     if codigo_valido:
-        data = {
-            FIELDS["codigo"]: codigo_barril,
-            FIELDS["estilo"]: estilo,
-            FIELDS["estado"]: estado,
-            FIELDS["cliente"]: cliente,
-            FIELDS["responsable"]: responsable,
-            FIELDS["observaciones"]: observaciones
+        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+        payload = {
+            "entry.311770370": codigo_barril,
+            "entry.1283669263": estilo_cerveza,
+            "entry.1545499818": estado_barril,
+            "entry.91059345": cliente,
+            "entry.1661747572": responsable,
+            "entry.1465957833": observaciones
         }
-        response = requests.post(FORM_URL, data=data)
+        response = requests.post(form_url, data=payload)
         if response.status_code == 200:
             st.success("✅ Registro enviado correctamente")
         else:
             st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
     else:
-        st.warning("⚠️ Código inválido. Debe tener 5 dígitos y comenzar por 20, 30 o 58.")
+        st.warning("⚠️ Código de barril inválido. Debe tener 5 dígitos y comenzar por 20, 30 o 58.")
 
+# ------------------------------
+# REGISTRAR NUEVO CLIENTE
+# ------------------------------
 st.markdown("---")
-
-st.header("➕ Registro de Nuevo Cliente")
+st.header("➕ Registrar Nuevo Cliente")
 nuevo_cliente = st.text_input("Nombre del nuevo cliente")
+direccion_cliente = st.text_input("Dirección (opcional)")
+
 if st.button("Agregar Cliente"):
-    if nuevo_cliente and nuevo_cliente not in st.session_state.clientes:
-        st.session_state.clientes.append(nuevo_cliente)
-        st.success("✅ Cliente agregado a la lista")
-    elif nuevo_cliente in st.session_state.clientes:
-        st.info("⚠️ Cliente ya existe en la lista")
+    if nuevo_cliente.strip() != "":
+        try:
+            df_nuevo = pd.DataFrame([[nuevo_cliente, direccion_cliente]], columns=["Cliente", "Dirección"])
+            if lista_clientes:
+                df_clientes = pd.concat([df_clientes, df_nuevo], ignore_index=True)
+            else:
+                df_clientes = df_nuevo
+            df_clientes.to_csv("clientes.csv", index=False)
+            st.success("✅ Cliente agregado correctamente")
+        except:
+            st.error("❌ Error al guardar el nuevo cliente")
     else:
-        st.warning("⚠️ Nombre vacío")
+        st.warning("⚠️ El nombre del cliente no puede estar vacío")
 
-st.header("🗑️ Eliminar Cliente")
-cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", st.session_state.clientes)
-if st.button("Eliminar Cliente"):
-    st.session_state.clientes.remove(cliente_eliminar)
-    st.success(f"✅ Cliente '{cliente_eliminar}' eliminado")
-
+# ------------------------------
+# ELIMINAR CLIENTE
+# ------------------------------
 st.markdown("---")
+st.header("🗑️ Eliminar Cliente")
+cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", lista_clientes)
+if st.button("Eliminar Cliente"):
+    try:
+        df_clientes = df_clientes[df_clientes["Cliente"] != cliente_eliminar]
+        df_clientes.to_csv("clientes.csv", index=False)
+        st.success("✅ Cliente eliminado correctamente")
+    except:
+        st.error("❌ Error al eliminar el cliente")
 
-st.header("🔍 Filtros")
-st.info("Estos filtros serán funcionales cuando se agregue conexión directa a la hoja de respuestas")
-st.text_input("Buscar por código de barril")
-st.selectbox("Filtrar por cliente", st.session_state.clientes)
-st.selectbox("Filtrar por estado", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+# ------------------------------
+# FILTROS Y REPORTE
+# ------------------------------
+st.markdown("---")
+st.header("📑 Últimos Movimientos de Barriles")
+
+try:
+    sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR_rDTEF08ImynpntJrbzMQb55vlEKD5nFzt9rNvjDP0kpkKHQUptRjPCWBWy8Eczavh9hImKtAo_su/pub?gid=1454588454&single=true&output=csv"
+    df_movimientos = pd.read_csv(sheet_url)
+
+    filtro_codigo = st.text_input("🔍 Buscar por código de barril")
+    filtro_cliente = st.selectbox("🔍 Filtrar por cliente", ["Todos"] + list(df_movimientos["Cliente"].unique()))
+    filtro_estado = st.selectbox("🔍 Filtrar por estado", ["Todos"] + list(df_movimientos["Estado"].unique()))
+
+    df_filtrado = df_movimientos
+    if filtro_codigo:
+        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo)]
+    if filtro_cliente != "Todos":
+        df_filtrado = df_filtrado[df_filtrado["Cliente"] == filtro_cliente]
+    if filtro_estado != "Todos":
+        df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
+
+    st.subheader("📄 Últimos 10 registros")
+    st.dataframe(df_filtrado.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+
+except Exception as e:
+    st.warning(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
