@@ -1,31 +1,60 @@
 import streamlit as st
-import pandas as pd
+import requests
+import datetime
 
-# Enlace público de tu hoja de Google Sheets vinculada al formulario
-GOOGLE_SHEET_URL = "https://docs.google.com/spreadsheets/d/e/XXXXX/pub?gid=0&single=true&output=csv"  # ← reemplaza con tu enlace
+st.set_page_config(page_title="Trazabilidad Barriles - Google Forms", layout="centered")
+st.title("📦 Trazabilidad de Barriles - Enviar a Google Forms")
 
-st.set_page_config(page_title="Trazabilidad de Barriles", layout="wide")
-st.title("📦 Trazabilidad de Barriles - Castiza")
+# Formulario principal
+st.subheader("📋 Registro de Barril")
+fecha = st.date_input("Fecha", value=datetime.date.today())
+codigo = st.text_input("Código del barril")
 
-st.markdown("Consulta de registros generados automáticamente desde Google Forms")
+# Determinar capacidad
+capacidad = ""
+if codigo.startswith("20") and len(codigo) == 5:
+    capacidad = "20L"
+elif codigo.startswith("30") and len(codigo) == 5:
+    capacidad = "30L"
+elif codigo.startswith("58") and len(codigo) == 5:
+    capacidad = "58L"
 
-# Cargar los datos directamente desde el Google Sheet (formato CSV)
-try:
-    df = pd.read_csv(GOOGLE_SHEET_URL)
-    st.success("✅ Datos cargados correctamente desde Google Sheets.")
-    
-    # Mostrar tabla
-    st.dataframe(df)
+estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+           "Session IPA", "IPA", "Maracuya", "Barley Wine", "Trigo", "Catharina Sour",
+           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+estilo = st.selectbox("Estilo", estilos)
 
-    # Filtro por código o cliente
-    filtro = st.text_input("🔍 Buscar por código del barril o cliente:")
-    if filtro:
-        resultado = df[df.apply(lambda row: filtro.lower() in row.to_string().lower(), axis=1)]
-        if not resultado.empty:
-            st.write(resultado)
+estado = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", "Baruk", "Sandona Plaza",
+            "El Barril", "La estiba las cuadras", "La estiba Villaflor"]
+cliente = st.selectbox("Cliente", clientes)
+
+responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
+responsable = st.selectbox("Responsable", responsables)
+
+observaciones = st.text_area("Observaciones")
+
+# Enviar datos al formulario
+if st.button("Enviar a Google Forms"):
+    if not codigo or not capacidad:
+        st.warning("⚠️ Código inválido o no reconocido (debe comenzar por 20, 30 o 58 y tener 5 dígitos)")
+    else:
+        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+
+        payload = {
+            "entry.311770370": codigo,
+            "entry.1839807382": capacidad,
+            "entry.1283669263": estilo,
+            "entry.1545499818": estado,
+            "entry.91059345": cliente,
+            "entry.1661747572": responsable,
+            "entry.1195378605": observaciones
+        }
+
+        response = requests.post(form_url, data=payload)
+
+        if response.status_code == 200 or response.status_code == 302:
+            st.success("✅ Registro enviado correctamente al formulario")
         else:
-            st.warning("No se encontraron coincidencias.")
-
-except Exception as e:
-    st.error("❌ No se pudieron cargar los datos. Verifica el enlace de Google Sheets.")
-    st.exception(e)
+            st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
