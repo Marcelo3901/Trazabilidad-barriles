@@ -29,7 +29,7 @@ estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bode
 # Carga dinámica de clientes desde archivo local
 try:
     df_clientes = pd.read_csv("clientes.csv")
-    lista_clientes = df_clientes["Cliente"].tolist()
+    lista_clientes = df_clientes.iloc[:, 0].tolist()
 except:
     lista_clientes = []
 
@@ -73,13 +73,13 @@ direccion_cliente = st.text_input("Dirección (opcional)")
 if st.button("Agregar Cliente"):
     if nuevo_cliente.strip() != "":
         try:
-            df_nuevo = pd.DataFrame([[nuevo_cliente, direccion_cliente]], columns=["Cliente", "Dirección"])
+            df_nuevo = pd.DataFrame([[nuevo_cliente, direccion_cliente]])
             if lista_clientes:
                 df_clientes = pd.concat([df_clientes, df_nuevo], ignore_index=True)
             else:
                 df_clientes = df_nuevo
-            df_clientes.drop_duplicates(subset="Cliente", keep="first", inplace=True)
-            df_clientes.to_csv("clientes.csv", index=False)
+            df_clientes.drop_duplicates(subset=0, keep="first", inplace=True)
+            df_clientes.to_csv("clientes.csv", index=False, header=False)
             st.success("✅ Cliente agregado correctamente")
         except:
             st.error("❌ Error al guardar el nuevo cliente")
@@ -95,8 +95,8 @@ if lista_clientes:
     cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", lista_clientes)
     if st.button("Eliminar Cliente"):
         try:
-            df_clientes = df_clientes[df_clientes["Cliente"] != cliente_eliminar]
-            df_clientes.to_csv("clientes.csv", index=False)
+            df_clientes = df_clientes[df_clientes.iloc[:, 0] != cliente_eliminar]
+            df_clientes.to_csv("clientes.csv", index=False, header=False)
             st.success("✅ Cliente eliminado correctamente")
         except:
             st.error("❌ Error al eliminar el cliente")
@@ -105,26 +105,34 @@ if lista_clientes:
 # FILTROS Y REPORTE
 # ------------------------------
 st.markdown("---")
-st.header("📑 Últimos Movimientos de Barriles")
+st.header("📁 Últimos Movimientos de Barriles")
 
 try:
-    sheet_url = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Datos%20M"
+    sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQPl9RtGqUuW3r1MCt4P3sR9Bl7npFrxjvmYuC5qK9SKljBGr1O_l8zsnR9ob5bPoHzhKfr2UmJRT68/pub?output=csv"
     df_movimientos = pd.read_csv(sheet_url)
 
     filtro_codigo = st.text_input("🔍 Buscar por código de barril:")
-    filtro_cliente = st.selectbox("🔍 Filtrar por cliente:", ["Todos"] + sorted(df_movimientos["Cliente"].dropna().unique()))
-    filtro_estado = st.selectbox("🔍 Filtrar por estado:", ["Todos"] + sorted(df_movimientos["Estado"].dropna().unique()))
+    filtro_cliente = st.selectbox("🔍 Filtrar por cliente:", ["Todos"] + sorted(df_movimientos.iloc[:, 7].dropna().unique()))
+    filtro_estado = st.selectbox("🔍 Filtrar por estado:", ["Todos"] + sorted(df_movimientos.iloc[:, 6].dropna().unique()))
 
     df_filtrado = df_movimientos.copy()
     if filtro_codigo:
-        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo.strip())]
+        df_filtrado = df_filtrado[df_filtrado.iloc[:, 1].astype(str).str.contains(filtro_codigo.strip())]
     if filtro_cliente != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["Cliente"] == filtro_cliente]
+        df_filtrado = df_filtrado[df_filtrado.iloc[:, 7] == filtro_cliente]
     if filtro_estado != "Todos":
-        df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
+        df_filtrado = df_filtrado[df_filtrado.iloc[:, 6] == filtro_estado]
 
     st.subheader("📄 Últimos 10 registros")
-    st.dataframe(df_filtrado.sort_values(by=df_filtrado.columns[0], ascending=False).head(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    reporte = df_filtrado.iloc[:, [1, 5, 6, 7, 8, 9]].rename(columns={
+        df_filtrado.columns[1]: "Código",
+        df_filtrado.columns[5]: "Estilo",
+        df_filtrado.columns[6]: "Estado",
+        df_filtrado.columns[7]: "Cliente",
+        df_filtrado.columns[8]: "Responsable",
+        df_filtrado.columns[9]: "Observaciones"
+    })
+    st.dataframe(reporte.tail(10))
 
 except Exception as e:
     st.warning(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
