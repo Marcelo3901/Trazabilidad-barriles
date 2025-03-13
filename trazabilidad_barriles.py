@@ -4,13 +4,13 @@ import requests
 from urllib.parse import urlencode
 
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
-st.title("🍺 Sistema de Trazabilidad de Barriles - Castiza")
+st.title("🍺 Sistema de Trazabilidad de Barriles CASTIZA")
 
 # ------------------------------
 # FORMULARIO DE REGISTRO DE BARRILES
 # ------------------------------
 
-st.header("📋 Registro de Barril")
+st.header("📋 Registro Movimiento Barriles")
 
 codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 
@@ -103,7 +103,7 @@ if lista_clientes:
 
 # =================== REPORTE GENERAL =======================
 st.markdown("---")
-st.subheader("📑 Reporte - Últimos 10 movimientos (Google Sheets)")
+st.subheader("📑 Reporte Últimos movimientos")
 
 try:
     sheet_url = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
@@ -118,15 +118,15 @@ except Exception as e:
 
 # =================== FILTROS DE BÚSQUEDA =====================
 st.markdown("---")
-st.subheader("🔍 Filtros de búsqueda (Google Sheets)")
+st.subheader("🔍 búsqueda Barriles")
 
 try:
     df = pd.read_csv(sheet_url)
     df.columns = df.columns.str.strip()
 
-    filtro_codigo = st.text_input("Buscar por código de barril")
+    filtro_codigo = st.text_input("Buscar por código")
     filtro_cliente = st.text_input("Buscar por cliente")
-    filtro_estado = st.selectbox("Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+    filtro_estado = st.selectbox("Buscar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
     df_filtro = df.copy()
     if filtro_codigo:
