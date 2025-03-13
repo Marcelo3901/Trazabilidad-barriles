@@ -154,7 +154,7 @@ try:
 
     filtro_codigo = st.text_input("🔎 Buscar por código de barril")
     filtro_cliente = st.text_input("🔎 Buscar por cliente")
-    filtro_estado = st.selectbox("📌 Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+    filtro_estado = st.selectbox("🔎 Buscar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
     df_filtro = df.copy()
     if filtro_codigo:
