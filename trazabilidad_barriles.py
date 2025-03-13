@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import requests
 from urllib.parse import urlencode
+import os
 
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
 st.title("🍺 Sistema de Trazabilidad de Barriles - Castiza")
@@ -103,27 +104,37 @@ if lista_clientes:
 
 # =================== REPORTE GENERAL =======================
 st.markdown("---")
-st.subheader("📑 Reporte General")
+st.subheader("📑 Reporte - Últimos 10 movimientos")
 if os.path.exists("registro_barriles.csv"):
     df = pd.read_csv("registro_barriles.csv")
-    st.dataframe(df)
+    st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
 else:
     st.info("No hay registros para mostrar aún")
 
-# =================== BUSCAR BARRIL =========================
+# =================== FILTROS DE BÚSQUEDA =====================
 st.markdown("---")
-st.subheader("🔍 Buscar estado por código")
-codigo_busqueda = st.text_input("Ingrese código del barril para buscar")
-if st.button("Buscar estado"):
-    if os.path.exists("registro_barriles.csv"):
-        df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
-        resultado = df[df["Código"].astype(str).str.strip() == codigo_busqueda.strip()]
-        if not resultado.empty:
-            st.write(resultado)
-        else:
-            st.warning("No se encontró ningún barril con ese código")
+st.subheader("🔍 Filtros de búsqueda")
+filtro_codigo = st.text_input("Buscar por código de barril")
+filtro_cliente = st.text_input("Buscar por cliente")
+filtro_estado = st.selectbox("Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+if os.path.exists("registro_barriles.csv"):
+    df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
+    df_filtro = df.copy()
+    if filtro_codigo:
+        df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
+    if filtro_cliente:
+        df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
+    if filtro_estado:
+        df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
+
+    if not df_filtro.empty:
+        st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
-        st.info("No hay registros disponibles")
+        st.warning("No se encontraron resultados con los filtros seleccionados")
+else:
+    st.info("No hay registros para buscar")
+
 # ========== DESCARGAR REPORTE ======================
 st.markdown("---")
 st.subheader("⬇️ Descargar Reporte")
