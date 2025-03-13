@@ -2,7 +2,6 @@ import streamlit as st
 import pandas as pd
 import requests
 from urllib.parse import urlencode
-import os
 
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
 st.title("🍺 Sistema de Trazabilidad de Barriles - Castiza")
@@ -44,7 +43,6 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 # Envío al formulario de Google Forms
-data_saved = False
 if st.button("Guardar Registro"):
     if codigo_valido:
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
@@ -59,25 +57,6 @@ if st.button("Guardar Registro"):
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
-            data_saved = True
-            # Guardar en CSV local también como respaldo
-            nuevo_registro = pd.DataFrame({
-                "Código": [codigo_barril],
-                "Estilo": [estilo_cerveza],
-                "Estado": [estado_barril],
-                "Cliente": [cliente],
-                "Responsable": [responsable],
-                "Observaciones": [observaciones]
-            })
-            if os.path.exists("registro_barriles.csv"):
-                try:
-                    df_existente = pd.read_csv("registro_barriles.csv")
-                except:
-                    df_existente = pd.DataFrame()
-                df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
-            else:
-                df_actualizado = nuevo_registro
-            df_actualizado.to_csv("registro_barriles.csv", index=False)
         else:
             st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
     else:
@@ -124,61 +103,42 @@ if lista_clientes:
 
 # =================== REPORTE GENERAL =======================
 st.markdown("---")
-st.subheader("📑 Reporte - Últimos 10 movimientos")
-if os.path.exists("registro_barriles.csv"):
-    try:
-        df = pd.read_csv("registro_barriles.csv")
-        if not df.empty:
-            st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
-        else:
-            st.warning("⚠️ El archivo registro_barriles.csv está vacío.")
-    except pd.errors.EmptyDataError:
-        st.warning("⚠️ El archivo registro_barriles.csv está vacío o dañado.")
-else:
-    st.info("No hay registros para mostrar aún")
+st.subheader("📑 Reporte - Últimos 10 movimientos (Google Sheets)")
+
+try:
+    sheet_url = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
+    df = pd.read_csv(sheet_url)
+    df.columns = df.columns.str.strip()
+    if not df.empty:
+        st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    else:
+        st.warning("⚠️ La hoja de cálculo está vacía.")
+except Exception as e:
+    st.error(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
 
 # =================== FILTROS DE BÚSQUEDA =====================
 st.markdown("---")
-st.subheader("🔍 Filtros de búsqueda")
-filtro_codigo = st.text_input("Buscar por código de barril")
-filtro_cliente = st.text_input("Buscar por cliente")
-filtro_estado = st.selectbox("Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+st.subheader("🔍 Filtros de búsqueda (Google Sheets)")
 
-if os.path.exists("registro_barriles.csv"):
-    try:
-        df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
-        if not df.empty:
-            df_filtro = df.copy()
-            if filtro_codigo:
-                df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
-            if filtro_cliente:
-                df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
-            if filtro_estado:
-                df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
-            if not df_filtro.empty:
-                st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
-            else:
-                st.warning("No se encontraron resultados con los filtros seleccionados")
-        else:
-            st.warning("⚠️ El archivo registro_barriles.csv está vacío.")
-    except pd.errors.EmptyDataError:
-        st.warning("⚠️ El archivo registro_barriles.csv está vacío o dañado.")
-else:
-    st.info("No hay registros para buscar")
+try:
+    df = pd.read_csv(sheet_url)
+    df.columns = df.columns.str.strip()
 
-# ========== DESCARGAR REPORTE ======================
-st.markdown("---")
-st.subheader("⬇️ Descargar Reporte")
-if os.path.exists("registro_barriles.csv"):
-    try:
-        with open("registro_barriles.csv", "rb") as f:
-            st.download_button(
-                label="Descargar reporte en formato CSV",
-                data=f,
-                file_name="registro_barriles.csv",
-                mime="text/csv"
-            )
-    except:
-        st.warning("⚠️ Error al abrir el archivo para descarga.")
-else:
-    st.info("No hay registros disponibles para descargar.")
+    filtro_codigo = st.text_input("Buscar por código de barril")
+    filtro_cliente = st.text_input("Buscar por cliente")
+    filtro_estado = st.selectbox("Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+    df_filtro = df.copy()
+    if filtro_codigo:
+        df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
+    if filtro_cliente:
+        df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
+    if filtro_estado:
+        df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
+
+    if not df_filtro.empty:
+        st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    else:
+        st.warning("No se encontraron resultados con los filtros seleccionados.")
+except Exception as e:
+    st.error(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
