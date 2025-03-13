@@ -44,6 +44,7 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 # Envío al formulario de Google Forms
+data_saved = False
 if st.button("Guardar Registro"):
     if codigo_valido:
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
@@ -58,6 +59,7 @@ if st.button("Guardar Registro"):
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
+            data_saved = True
         else:
             st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
     else:
@@ -106,8 +108,11 @@ if lista_clientes:
 st.markdown("---")
 st.subheader("📑 Reporte - Últimos 10 movimientos")
 if os.path.exists("registro_barriles.csv"):
-    df = pd.read_csv("registro_barriles.csv")
-    st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    try:
+        df = pd.read_csv("registro_barriles.csv")
+        st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    except pd.errors.EmptyDataError:
+        st.warning("⚠️ El archivo registro_barriles.csv está vacío.")
 else:
     st.info("No hay registros para mostrar aún")
 
@@ -119,19 +124,22 @@ filtro_cliente = st.text_input("Buscar por cliente")
 filtro_estado = st.selectbox("Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 if os.path.exists("registro_barriles.csv"):
-    df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
-    df_filtro = df.copy()
-    if filtro_codigo:
-        df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
-    if filtro_cliente:
-        df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
-    if filtro_estado:
-        df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
+    try:
+        df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
+        df_filtro = df.copy()
+        if filtro_codigo:
+            df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
+        if filtro_cliente:
+            df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
+        if filtro_estado:
+            df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
 
-    if not df_filtro.empty:
-        st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
-    else:
-        st.warning("No se encontraron resultados con los filtros seleccionados")
+        if not df_filtro.empty:
+            st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        else:
+            st.warning("No se encontraron resultados con los filtros seleccionados")
+    except pd.errors.EmptyDataError:
+        st.warning("⚠️ El archivo registro_barriles.csv está vacío, no se pueden aplicar filtros.")
 else:
     st.info("No hay registros para buscar")
 
@@ -139,12 +147,15 @@ else:
 st.markdown("---")
 st.subheader("⬇️ Descargar Reporte")
 if os.path.exists("registro_barriles.csv"):
-    with open("registro_barriles.csv", "rb") as f:
-        st.download_button(
-            label="Descargar reporte en formato CSV",
-            data=f,
-            file_name="registro_barriles.csv",
-            mime="text/csv"
-        )
+    try:
+        with open("registro_barriles.csv", "rb") as f:
+            st.download_button(
+                label="Descargar reporte en formato CSV",
+                data=f,
+                file_name="registro_barriles.csv",
+                mime="text/csv"
+            )
+    except:
+        st.warning("⚠️ Error al abrir el archivo para descarga.")
 else:
     st.info("No hay registros disponibles para descargar.")
