@@ -118,7 +118,7 @@ except Exception as e:
 
 # =================== FILTROS DE BÚSQUEDA =====================
 st.markdown("---")
-st.subheader("🔍 búsqueda Barriles")
+st.subheader("🔍 Rastreo Barriles")
 
 try:
     df = pd.read_csv(sheet_url)
