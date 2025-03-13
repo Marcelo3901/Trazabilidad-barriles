@@ -134,5 +134,8 @@ try:
     })
     st.dataframe(reporte.tail(10))
 
+    csv = reporte.to_csv(index=False).encode('utf-8')
+    st.download_button("📥 Descargar últimos registros en CSV", csv, "reporte_barriles.csv", "text/csv")
+
 except Exception as e:
     st.warning(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
