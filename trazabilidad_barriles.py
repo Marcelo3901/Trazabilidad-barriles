@@ -8,42 +8,60 @@ import os
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
 
-# AÑADIR IMAGEN DE FONDO PERSONALIZADA
-def add_bg_image(image_file):
-    with open(image_file, "rb") as img:
+# AÑADIR IMAGEN DE FONDO PERSONALIZADA Y ESTILOS GENERALES
+if os.path.exists("background.jpg"):
+    with open("background.jpg", "rb") as img:
         encoded = base64.b64encode(img.read()).decode()
     st.markdown(
         f"""
         <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+        html, body, [class*="st"]  {{
+            font-family: 'Roboto', sans-serif;
+            color: #fff3aa;
+        }}
         .stApp {{
-            background-image: url("data:image/png;base64,{encoded}");
+            background-image: url("data:image/jpeg;base64,{encoded}");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
             background-attachment: fixed;
+        }}
+        .stTextInput > div > div > input,
+        .stSelectbox > div > div,
+        .stTextArea > div > textarea {{
+            background-color: #ffffff10 !important;
+            color: #fff3aa !important;
+            border-radius: 10px;
+        }}
+        .stButton > button {{
+            background-color: #55dcad !important;
+            color: #fff3aa !important;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+        }}
+        .stDataFrame, .stTable {{
+            background-color: rgba(0,0,0,0.6);
+            border-radius: 10px;
         }}
         </style>
         """,
         unsafe_allow_html=True
     )
 
-# Reemplaza "background.png" con el nombre de tu imagen
-if os.path.exists("background.png"):
-    add_bg_image("background.png")
-
 # TITULO PRINCIPAL
 st.markdown("""
-    <h1 style='text-align:center; color:#ffffff;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>
+    <h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>
 """, unsafe_allow_html=True)
 
 # ------------------------------
 # FORMULARIO DE REGISTRO DE BARRILES
 # ------------------------------
-st.markdown("""<h2 style='color:#ffffff;'>📋 Registro Movimiento Barriles</h2>""", unsafe_allow_html=True)
+st.markdown("""<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>""", unsafe_allow_html=True)
 
 codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 
-# Validación del código del barril
 codigo_valido = False
 if codigo_barril and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]:
     codigo_valido = True
@@ -55,7 +73,6 @@ estilo_cerveza = st.selectbox("Estilo", estilos)
 
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
-# Carga dinámica de clientes desde archivo local
 try:
     df_clientes = pd.read_csv("clientes.csv")
     lista_clientes = df_clientes.iloc[:, 0].dropna().astype(str).tolist()
@@ -71,7 +88,6 @@ responsable = st.selectbox("Responsable", responsables)
 
 observaciones = st.text_area("Observaciones")
 
-# Envío al formulario de Google Forms
 if st.button("Guardar Registro"):
     if codigo_valido:
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
@@ -91,11 +107,9 @@ if st.button("Guardar Registro"):
     else:
         st.warning("⚠️ Código de barril inválido. Debe tener 5 dígitos y comenzar por 20, 30 o 58.")
 
-# ------------------------------
-# REGISTRAR NUEVO CLIENTE
-# ------------------------------
+# Registrar cliente
 st.markdown("---")
-st.markdown("""<h2 style='color:#ffffff;'>➕ Registrar Nuevo Cliente</h2>""", unsafe_allow_html=True)
+st.markdown("""<h2 style='color:#fff3aa;'>➕ Registrar Nuevo Cliente</h2>""", unsafe_allow_html=True)
 nuevo_cliente = st.text_input("Nombre del nuevo cliente")
 direccion_cliente = st.text_input("Dirección (opcional)")
 
@@ -115,11 +129,9 @@ if st.button("Agregar Cliente"):
     else:
         st.warning("⚠️ El nombre del cliente no puede estar vacío")
 
-# ------------------------------
-# ELIMINAR CLIENTE
-# ------------------------------
+# Eliminar cliente
 st.markdown("---")
-st.markdown("""<h2 style='color:#ffffff;'>🗑️ Eliminar Cliente</h2>""", unsafe_allow_html=True)
+st.markdown("""<h2 style='color:#fff3aa;'>🗑️ Eliminar Cliente</h2>""", unsafe_allow_html=True)
 if lista_clientes:
     cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", lista_clientes)
     if st.button("Eliminar Cliente"):
@@ -130,9 +142,9 @@ if lista_clientes:
         except:
             st.error("❌ Error al eliminar el cliente")
 
-# =================== REPORTE GENERAL =======================
+# Últimos movimientos
 st.markdown("---")
-st.markdown("""<h2 style='color:#ffffff;'>📑 Últimos 10 Movimientos</h2>""", unsafe_allow_html=True)
+st.markdown("""<h2 style='color:#fff3aa;'>📑 Últimos 10 Movimientos</h2>""", unsafe_allow_html=True)
 try:
     sheet_url = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
     df = pd.read_csv(sheet_url)
@@ -144,17 +156,16 @@ try:
 except Exception as e:
     st.error(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
 
-# =================== FILTROS DE BÚSQUEDA =====================
+# Buscar barriles
 st.markdown("---")
-st.markdown("""<h2 style='color:#ffffff;'>🔍 Buscar Barriles</h2>""", unsafe_allow_html=True)
-
+st.markdown("""<h2 style='color:#fff3aa;'>🔍 Buscar Barriles</h2>""", unsafe_allow_html=True)
 try:
     df = pd.read_csv(sheet_url)
     df.columns = df.columns.str.strip()
 
     filtro_codigo = st.text_input("🔎 Buscar por código de barril")
     filtro_cliente = st.text_input("🔎 Buscar por cliente")
-    filtro_estado = st.selectbox("🔎 Buscar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+    filtro_estado = st.selectbox("📌 Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
     df_filtro = df.copy()
     if filtro_codigo:
