@@ -108,7 +108,7 @@ st.markdown("---")
 st.header("📑 Últimos Movimientos de Barriles")
 
 try:
-    sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQPl9RtGqUuW3r1MCt4P3sR9Bl7npFrxjvmYuC5qK9SKljBGr1O_l8zsnR9ob5bPoHzhKfr2UmJRT68/pub?output=csv"
+    sheet_url = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Datos%20M"
     df_movimientos = pd.read_csv(sheet_url)
 
     filtro_codigo = st.text_input("🔍 Buscar por código de barril:")
