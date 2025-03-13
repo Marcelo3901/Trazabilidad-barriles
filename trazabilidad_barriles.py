@@ -101,41 +101,39 @@ if lista_clientes:
         except:
             st.error("❌ Error al eliminar el cliente")
 
-# ------------------------------
-# FILTROS Y REPORTE
-# ------------------------------
+# =================== REPORTE GENERAL =======================
 st.markdown("---")
-st.header("📁 Últimos Movimientos de Barriles")
+st.subheader("📑 Reporte General")
+if os.path.exists("registro_barriles.csv"):
+    df = pd.read_csv("registro_barriles.csv")
+    st.dataframe(df)
+else:
+    st.info("No hay registros para mostrar aún")
 
-try:
-    sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQPl9RtGqUuW3r1MCt4P3sR9Bl7npFrxjvmYuC5qK9SKljBGr1O_l8zsnR9ob5bPoHzhKfr2UmJRT68/pub?output=csv"
-    df_movimientos = pd.read_csv(sheet_url)
-
-    filtro_codigo = st.text_input("🔍 Buscar por código de barril:")
-    filtro_cliente = st.selectbox("🔍 Filtrar por cliente:", ["Todos"] + sorted(df_movimientos.iloc[:, 7].dropna().unique()))
-    filtro_estado = st.selectbox("🔍 Filtrar por estado:", ["Todos"] + sorted(df_movimientos.iloc[:, 6].dropna().unique()))
-
-    df_filtrado = df_movimientos.copy()
-    if filtro_codigo:
-        df_filtrado = df_filtrado[df_filtrado.iloc[:, 1].astype(str).str.contains(filtro_codigo.strip())]
-    if filtro_cliente != "Todos":
-        df_filtrado = df_filtrado[df_filtrado.iloc[:, 7] == filtro_cliente]
-    if filtro_estado != "Todos":
-        df_filtrado = df_filtrado[df_filtrado.iloc[:, 6] == filtro_estado]
-
-    st.subheader("📄 Últimos 10 registros")
-    reporte = df_filtrado.iloc[:, [1, 5, 6, 7, 8, 9]].rename(columns={
-        df_filtrado.columns[1]: "Código",
-        df_filtrado.columns[5]: "Estilo",
-        df_filtrado.columns[6]: "Estado",
-        df_filtrado.columns[7]: "Cliente",
-        df_filtrado.columns[8]: "Responsable",
-        df_filtrado.columns[9]: "Observaciones"
-    })
-    st.dataframe(reporte.tail(10))
-
-    csv = reporte.to_csv(index=False).encode('utf-8')
-    st.download_button("📥 Descargar últimos registros en CSV", csv, "reporte_barriles.csv", "text/csv")
-
-except Exception as e:
-    st.warning(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
+# =================== BUSCAR BARRIL =========================
+st.markdown("---")
+st.subheader("🔍 Buscar estado por código")
+codigo_busqueda = st.text_input("Ingrese código del barril para buscar")
+if st.button("Buscar estado"):
+    if os.path.exists("registro_barriles.csv"):
+        df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
+        resultado = df[df["Código"].astype(str).str.strip() == codigo_busqueda.strip()]
+        if not resultado.empty:
+            st.write(resultado)
+        else:
+            st.warning("No se encontró ningún barril con ese código")
+    else:
+        st.info("No hay registros disponibles")
+# ========== DESCARGAR REPORTE ======================
+st.markdown("---")
+st.subheader("⬇️ Descargar Reporte")
+if os.path.exists("registro_barriles.csv"):
+    with open("registro_barriles.csv", "rb") as f:
+        st.download_button(
+            label="Descargar reporte en formato CSV",
+            data=f,
+            file_name="registro_barriles.csv",
+            mime="text/csv"
+        )
+else:
+    st.info("No hay registros disponibles para descargar.")
