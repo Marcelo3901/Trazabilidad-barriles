@@ -55,7 +55,7 @@ if st.button("Guardar Registro"):
             "entry.1465957833": observaciones
         }
         response = requests.post(form_url, data=payload)
-        if response.status_code == 200:
+        if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
         else:
             st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
@@ -78,6 +78,7 @@ if st.button("Agregar Cliente"):
                 df_clientes = pd.concat([df_clientes, df_nuevo], ignore_index=True)
             else:
                 df_clientes = df_nuevo
+            df_clientes.drop_duplicates(subset="Cliente", keep="first", inplace=True)
             df_clientes.to_csv("clientes.csv", index=False)
             st.success("✅ Cliente agregado correctamente")
         except:
@@ -90,14 +91,15 @@ if st.button("Agregar Cliente"):
 # ------------------------------
 st.markdown("---")
 st.header("🗑️ Eliminar Cliente")
-cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", lista_clientes)
-if st.button("Eliminar Cliente"):
-    try:
-        df_clientes = df_clientes[df_clientes["Cliente"] != cliente_eliminar]
-        df_clientes.to_csv("clientes.csv", index=False)
-        st.success("✅ Cliente eliminado correctamente")
-    except:
-        st.error("❌ Error al eliminar el cliente")
+if lista_clientes:
+    cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", lista_clientes)
+    if st.button("Eliminar Cliente"):
+        try:
+            df_clientes = df_clientes[df_clientes["Cliente"] != cliente_eliminar]
+            df_clientes.to_csv("clientes.csv", index=False)
+            st.success("✅ Cliente eliminado correctamente")
+        except:
+            st.error("❌ Error al eliminar el cliente")
 
 # ------------------------------
 # FILTROS Y REPORTE
@@ -109,20 +111,20 @@ try:
     sheet_url = "https://docs.google.com/spreadsheets/d/e/2PACX-1vR_rDTEF08ImynpntJrbzMQb55vlEKD5nFzt9rNvjDP0kpkKHQUptRjPCWBWy8Eczavh9hImKtAo_su/pub?gid=1454588454&single=true&output=csv"
     df_movimientos = pd.read_csv(sheet_url)
 
-    filtro_codigo = st.text_input("🔍 Buscar por código de barril")
-    filtro_cliente = st.selectbox("🔍 Filtrar por cliente", ["Todos"] + list(df_movimientos["Cliente"].unique()))
-    filtro_estado = st.selectbox("🔍 Filtrar por estado", ["Todos"] + list(df_movimientos["Estado"].unique()))
+    filtro_codigo = st.text_input("🔍 Buscar por código de barril:")
+    filtro_cliente = st.selectbox("🔍 Filtrar por cliente:", ["Todos"] + sorted(df_movimientos["Cliente"].dropna().unique()))
+    filtro_estado = st.selectbox("🔍 Filtrar por estado:", ["Todos"] + sorted(df_movimientos["Estado"].dropna().unique()))
 
-    df_filtrado = df_movimientos
+    df_filtrado = df_movimientos.copy()
     if filtro_codigo:
-        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo)]
+        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo.strip())]
     if filtro_cliente != "Todos":
         df_filtrado = df_filtrado[df_filtrado["Cliente"] == filtro_cliente]
     if filtro_estado != "Todos":
         df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
 
     st.subheader("📄 Últimos 10 registros")
-    st.dataframe(df_filtrado.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    st.dataframe(df_filtrado.sort_values(by=df_filtrado.columns[0], ascending=False).head(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
 
 except Exception as e:
     st.warning(f"⚠️ No se pudo cargar la hoja de cálculo: {e}")
