@@ -89,7 +89,7 @@ if st.button("Guardar Registro"):
             "entry.1545499818": estado_barril,
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
-            "entry.1195378605": observaciones
+            "entry.1195378605": observacionesmov
         }
         response = requests.post(url, data=data)
         if response.status_code == 200:
