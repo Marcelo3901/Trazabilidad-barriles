@@ -2,15 +2,44 @@ import streamlit as st
 import pandas as pd
 import requests
 from urllib.parse import urlencode
+import base64
+import os
 
+# CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
-st.title("🍺 Sistema de Trazabilidad de Barriles CASTIZA")
+
+# AÑADIR IMAGEN DE FONDO PERSONALIZADA
+def add_bg_image(image_file):
+    with open(image_file, "rb") as img:
+        encoded = base64.b64encode(img.read()).decode()
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("data:image/png;base64,{encoded}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# Reemplaza "background.png" con el nombre de tu imagen
+if os.path.exists("background.png"):
+    add_bg_image("background.png")
+
+# TITULO PRINCIPAL
+st.markdown("""
+    <h1 style='text-align:center; color:#ffffff;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>
+""", unsafe_allow_html=True)
 
 # ------------------------------
 # FORMULARIO DE REGISTRO DE BARRILES
 # ------------------------------
-
-st.header("📋 Registro Movimiento Barriles")
+st.markdown("""<h2 style='color:#ffffff;'>📋 Registro Movimiento Barriles</h2>""", unsafe_allow_html=True)
 
 codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 
@@ -66,7 +95,7 @@ if st.button("Guardar Registro"):
 # REGISTRAR NUEVO CLIENTE
 # ------------------------------
 st.markdown("---")
-st.header("➕ Registrar Nuevo Cliente")
+st.markdown("""<h2 style='color:#ffffff;'>➕ Registrar Nuevo Cliente</h2>""", unsafe_allow_html=True)
 nuevo_cliente = st.text_input("Nombre del nuevo cliente")
 direccion_cliente = st.text_input("Dirección (opcional)")
 
@@ -90,7 +119,7 @@ if st.button("Agregar Cliente"):
 # ELIMINAR CLIENTE
 # ------------------------------
 st.markdown("---")
-st.header("🗑️ Eliminar Cliente")
+st.markdown("""<h2 style='color:#ffffff;'>🗑️ Eliminar Cliente</h2>""", unsafe_allow_html=True)
 if lista_clientes:
     cliente_eliminar = st.selectbox("Selecciona cliente a eliminar", lista_clientes)
     if st.button("Eliminar Cliente"):
@@ -103,8 +132,7 @@ if lista_clientes:
 
 # =================== REPORTE GENERAL =======================
 st.markdown("---")
-st.subheader("📑 Reporte Últimos movimientos")
-
+st.markdown("""<h2 style='color:#ffffff;'>📑 Últimos 10 Movimientos</h2>""", unsafe_allow_html=True)
 try:
     sheet_url = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
     df = pd.read_csv(sheet_url)
@@ -118,15 +146,15 @@ except Exception as e:
 
 # =================== FILTROS DE BÚSQUEDA =====================
 st.markdown("---")
-st.subheader("🔍 Rastreo Barriles")
+st.markdown("""<h2 style='color:#ffffff;'>🔍 Buscar Barriles</h2>""", unsafe_allow_html=True)
 
 try:
     df = pd.read_csv(sheet_url)
     df.columns = df.columns.str.strip()
 
-    filtro_codigo = st.text_input("Buscar por código")
-    filtro_cliente = st.text_input("Buscar por cliente")
-    filtro_estado = st.selectbox("Buscar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+    filtro_codigo = st.text_input("🔎 Buscar por código de barril")
+    filtro_cliente = st.text_input("🔎 Buscar por cliente")
+    filtro_estado = st.selectbox("📌 Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
     df_filtro = df.copy()
     if filtro_codigo:
