@@ -30,7 +30,7 @@ estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bode
 # Carga dinámica de clientes desde archivo local
 try:
     df_clientes = pd.read_csv("clientes.csv")
-    lista_clientes = df_clientes.iloc[:, 0].tolist()
+    lista_clientes = df_clientes.iloc[:, 0].dropna().astype(str).tolist()
 except:
     lista_clientes = []
 
@@ -60,6 +60,24 @@ if st.button("Guardar Registro"):
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
             data_saved = True
+            # Guardar en CSV local también como respaldo
+            nuevo_registro = pd.DataFrame({
+                "Código": [codigo_barril],
+                "Estilo": [estilo_cerveza],
+                "Estado": [estado_barril],
+                "Cliente": [cliente],
+                "Responsable": [responsable],
+                "Observaciones": [observaciones]
+            })
+            if os.path.exists("registro_barriles.csv"):
+                try:
+                    df_existente = pd.read_csv("registro_barriles.csv")
+                except:
+                    df_existente = pd.DataFrame()
+                df_actualizado = pd.concat([df_existente, nuevo_registro], ignore_index=True)
+            else:
+                df_actualizado = nuevo_registro
+            df_actualizado.to_csv("registro_barriles.csv", index=False)
         else:
             st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
     else:
@@ -110,9 +128,12 @@ st.subheader("📑 Reporte - Últimos 10 movimientos")
 if os.path.exists("registro_barriles.csv"):
     try:
         df = pd.read_csv("registro_barriles.csv")
-        st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        if not df.empty:
+            st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        else:
+            st.warning("⚠️ El archivo registro_barriles.csv está vacío.")
     except pd.errors.EmptyDataError:
-        st.warning("⚠️ El archivo registro_barriles.csv está vacío.")
+        st.warning("⚠️ El archivo registro_barriles.csv está vacío o dañado.")
 else:
     st.info("No hay registros para mostrar aún")
 
@@ -126,20 +147,22 @@ filtro_estado = st.selectbox("Filtrar por estado", ["", "Despachado", "Lavado en
 if os.path.exists("registro_barriles.csv"):
     try:
         df = pd.read_csv("registro_barriles.csv", dtype={"Código": str})
-        df_filtro = df.copy()
-        if filtro_codigo:
-            df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
-        if filtro_cliente:
-            df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
-        if filtro_estado:
-            df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
-
-        if not df_filtro.empty:
-            st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        if not df.empty:
+            df_filtro = df.copy()
+            if filtro_codigo:
+                df_filtro = df_filtro[df_filtro["Código"].astype(str).str.contains(filtro_codigo)]
+            if filtro_cliente:
+                df_filtro = df_filtro[df_filtro["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
+            if filtro_estado:
+                df_filtro = df_filtro[df_filtro["Estado"] == filtro_estado]
+            if not df_filtro.empty:
+                st.dataframe(df_filtro[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+            else:
+                st.warning("No se encontraron resultados con los filtros seleccionados")
         else:
-            st.warning("No se encontraron resultados con los filtros seleccionados")
+            st.warning("⚠️ El archivo registro_barriles.csv está vacío.")
     except pd.errors.EmptyDataError:
-        st.warning("⚠️ El archivo registro_barriles.csv está vacío, no se pueden aplicar filtros.")
+        st.warning("⚠️ El archivo registro_barriles.csv está vacío o dañado.")
 else:
     st.info("No hay registros para buscar")
 
