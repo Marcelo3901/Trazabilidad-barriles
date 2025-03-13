@@ -150,6 +150,7 @@ try:
     df = pd.read_csv(sheet_url)
     df.columns = df.columns.str.strip()
     if not df.empty:
+        df = df[df["Código"].notna()]  # Filtra si hay filas vacías
         st.dataframe(df.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
         st.warning("⚠️ La hoja de cálculo está vacía.")
