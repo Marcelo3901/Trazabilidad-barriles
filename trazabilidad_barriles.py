@@ -1,17 +1,10 @@
 import streamlit as st
 import requests
+import pandas as pd
 
-st.set_page_config(page_title="Trazabilidad de Barriles", layout="centered")
-
+st.set_page_config(page_title="Trazabilidad de Barriles - Castiza", layout="centered")
 st.markdown("""
     <style>
-    @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
-    .stApp {
-        font-family: 'Roboto', sans-serif;
-        color: #ffffff;
-        padding: 1rem;
-        font-size: 18px !important;
-    }
     .big-title {
         font-size: 48px !important;
         font-weight: bold;
@@ -41,31 +34,32 @@ st.markdown("""
 
 st.markdown("<div class='big-title'>🍺 TRAZABILIDAD BARRILES CASTIZA</div>", unsafe_allow_html=True)
 
-st.markdown("<h2 style='font-size:32px;'>📋 Registro de Barril</h2>", unsafe_allow_html=True)
-codigo_barril = st.text_input("Código del barril")
+# Inicializar lista de clientes (simulación en memoria)
+if "clientes" not in st.session_state:
+    st.session_state.clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", "Baruk", "Sandona Plaza",
+                                 "El Barril", "La estiba las cuadras", "La estiba Villaflor"]
 
-capacidad = ""
-codigo_valido = False
-if codigo_barril.startswith("20") and len(codigo_barril) == 5:
-    capacidad = "20L"
-    codigo_valido = True
-elif codigo_barril.startswith("30") and len(codigo_barril) == 5:
-    capacidad = "30L"
-    codigo_valido = True
-elif codigo_barril.startswith("58") and len(codigo_barril) == 5:
-    capacidad = "58L"
-    codigo_valido = True
+st.markdown("""
+<h2 style='font-size:32px;'>➕ Registrar Nuevo Cliente</h2>
+""", unsafe_allow_html=True)
+nuevo_cliente = st.text_input("Nombre del nuevo cliente")
+if st.button("Agregar Cliente"):
+    if nuevo_cliente and nuevo_cliente not in st.session_state.clientes:
+        st.session_state.clientes.append(nuevo_cliente)
+        st.success("✅ Cliente agregado exitosamente")
+    else:
+        st.warning("⚠️ Ingresa un nombre válido o el cliente ya existe")
+
+st.markdown("""
+<h2 style='font-size:32px;'>📋 Registro de Barril</h2>
+""", unsafe_allow_html=True)
+codigo_barril = st.text_input("Código del barril")
 
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuya", "Barley Wine", "Trigo", "Catharina Sour",
            "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
 estilo_cerveza = st.selectbox("Estilo", estilos)
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
-
-# Lista dinámica de clientes desde archivo local
-if "clientes" not in st.session_state:
-    st.session_state.clientes = ["Castiza Av. Estudiantes", "Bendita Birra CC sebastian Belalcazar", "Baruk", "Sandona Plaza",
-                                 "El Barril", "La estiba las cuadras", "La estiba Villaflor"]
 
 cliente = "Planta Castiza"
 if estado_barril == "Despachado":
@@ -74,16 +68,13 @@ if estado_barril == "Despachado":
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
 responsable = st.selectbox("Responsable", responsables)
 
-observaciones = ""
-if estado_barril == "Sucio":
-    observaciones = f"Último cliente: {cliente}"
-else:
-    observaciones = st.text_area("Observaciones", "")
+observaciones = st.text_area("Observaciones")
 
 if st.button("Guardar Registro"):
-    if codigo_barril and estado_barril and responsable and codigo_valido:
+    if codigo_barril and estado_barril and responsable:
+        # Enviar a Google Form (POST)
         url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-        data = {
+        payload = {
             "entry.311770370": codigo_barril,
             "entry.1283669263": estilo_cerveza,
             "entry.1545499818": estado_barril,
@@ -91,26 +82,18 @@ if st.button("Guardar Registro"):
             "entry.1661747572": responsable,
             "entry.1195378605": observaciones
         }
-        response = requests.post(url, data=data)
+        response = requests.post(url, data=payload)
         if response.status_code == 200:
-            st.success("✅ Registro enviado correctamente al formulario.")
+            st.success("✅ Registro enviado exitosamente")
         else:
             st.error(f"❌ Error al enviar el formulario. Código de estado: {response.status_code}")
     else:
-        if not codigo_valido:
-            st.warning("⚠️ El código del barril no cumple con el formato esperado.")
-        else:
-            st.warning("⚠️ Por favor, completa los campos obligatorios")
+        st.warning("⚠️ Completa todos los campos requeridos")
 
 st.markdown("---")
-st.markdown("<h2 style='font-size:32px;'>➕ Registrar Nuevo Cliente</h2>", unsafe_allow_html=True)
-nuevo_cliente = st.text_input("Nuevo cliente")
-if st.button("Agregar cliente"):
-    if nuevo_cliente.strip():
-        if nuevo_cliente not in st.session_state.clientes:
-            st.session_state.clientes.append(nuevo_cliente)
-            st.success("✅ Cliente agregado correctamente.")
-        else:
-            st.warning("⚠️ El cliente ya está en la lista.")
-    else:
-        st.warning("⚠️ Por favor, ingresa un nombre válido.")
+st.markdown("<h2 style='font-size:32px;'>🔍 Filtros de búsqueda</h2>", unsafe_allow_html=True)
+codigo_filtro = st.text_input("Buscar por código de barril")
+cliente_filtro = st.selectbox("Filtrar por cliente", ["Todos"] + st.session_state.clientes)
+estado_filtro = st.selectbox("Filtrar por estado", ["Todos", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+st.info("🔔 Los resultados filtrados se reflejarán en el reporte general si usas integración con Google Sheets o cargas el CSV.")
