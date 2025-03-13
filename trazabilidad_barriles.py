@@ -43,13 +43,13 @@ if st.button("Enviar a Google Forms"):
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
 
         payload = {
-            "entry.311770370": codigo,
-            "entry.1839807382": capacidad,
-            "entry.1283669263": estilo,
-            "entry.1545499818": estado,
-            "entry.91059345": cliente,
-            "entry.1661747572": responsable,
-            "entry.1195378605": observaciones
+               "entry.311770370": codigo,
+                # "entry.1839807382": capacidad,  ←  removido temporalmente
+                "entry.1283669263": estilo,
+                "entry.1545499818": estado,
+                "entry.91059345": cliente,
+                "entry.1661747572": responsable,
+                "entry.1195378605": observaciones
         }
 
         response = requests.post(form_url, data=payload)
