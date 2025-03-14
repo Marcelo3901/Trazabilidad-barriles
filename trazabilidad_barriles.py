@@ -56,22 +56,22 @@ st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Traza
 # FORMULARIO DE REGISTRO DE BARRILES
 st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
-estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
+estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 codigo_barril = ""
 codigo_valido = False
 lote_producto = ""
 lote_valido = False
 
-if estado_barril in ["Despaco", "En cuarto frío", "Lavado en bodega", "Sucio"]:
+if estado_barril in ["Despachado", "En cuarto frío", "Lavado en bodega", "Sucio"]:
     codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
     codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
 
-if estado_barril in ["Despacho", "En cuarto frío"]:
+if estado_barril in ["Despachado", "En cuarto frío"]:
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
     lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
-estilos = [ "Vacío", "Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
            "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
 estilo_cerveza = st.selectbox("Estilo", estilos)
@@ -89,16 +89,22 @@ except Exception as e:
 
 cliente = "Planta Castiza"
 direccion_cliente = ""
-if estado_barril == "Despacho" and lista_clientes:
+if estado_barril == "Despachado" and lista_clientes:
     cliente = st.selectbox("Cliente", lista_clientes)
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
+
+# NUEVO BLOQUE: INFORMACIÓN ADICIONAL PARA TRAZABILIDAD
+if estado_barril == "Despachado":
+    st.markdown("<h4 style='color:#fff3aa;'>📦 Información adicional del despacho</h4>", unsafe_allow_html=True)
+    cantidad_barriles = st.number_input("Cantidad de barriles", min_value=1, step=1)
+    lote_general = st.text_input("Lote general del despacho (opcional)")
 
 incluye_latas = "No"
 cantidad_latas = ""
 lote_latas = ""
 
-if estado_barril == "Despacho":
+if estado_barril == "Despachado":
     incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
         cantidad_latas = st.number_input("Cantidad de latas", min_value=1, step=1)
@@ -112,7 +118,7 @@ observaciones = st.text_area("Observaciones")
 if st.button("Guardar Registro"):
     if estado_barril in ["Lavado en bodega", "Sucio"] and not codigo_valido:
         st.warning("⚠️ Código inválido. Debe tener 5 dígitos y comenzar por 20, 30 o 58.")
-    elif estado_barril in ["Despacho", "En cuarto frío"] and (not codigo_valido or not lote_valido):
+    elif estado_barril in ["Despachado", "En cuarto frío"] and (not codigo_valido or not lote_valido):
         st.warning("⚠️ Código o lote inválido. El código debe tener 5 dígitos y el lote 9 dígitos.")
     else:
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
@@ -123,10 +129,12 @@ if st.button("Guardar Registro"):
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
+            "entry.1234567890": lote_producto if estado_barril in ["Despachado", "En cuarto frío"] else "",
             "entry.9876543210": incluye_latas,
             "entry.1122334455": str(cantidad_latas) if incluye_latas == "Sí" else "",
-            "entry.9988776655": lote_latas if incluye_latas == "Sí" else ""
+            "entry.9988776655": lote_latas if incluye_latas == "Sí" else "",
+            "entry.4455667788": str(cantidad_barriles) if estado_barril == "Despachado" else "",
+            "entry.5566778899": lote_general if estado_barril == "Despachado" else ""
         }
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
