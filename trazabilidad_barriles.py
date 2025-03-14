@@ -5,6 +5,8 @@ from urllib.parse import urlencode
 import base64
 import os
 
+url_datos = "https://docs.google.com/spreadsheets/d/e/1FAIpQLSfXXXXXXXxxxxxxXxxxxXX/pub?output=csv"
+
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
 
