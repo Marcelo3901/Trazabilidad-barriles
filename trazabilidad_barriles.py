@@ -62,9 +62,6 @@ st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>",
 codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
 
-# Lote del producto (9 dígitos)
-lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
 # Estilo de cerveza
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
@@ -74,6 +71,10 @@ estilo_cerveza = st.selectbox("Estilo", estilos)
 
 # Estado del barril
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+# Lote del producto (9 dígitos)
+lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
+lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
 # Leer lista de clientes desde Google Sheets
 try:
