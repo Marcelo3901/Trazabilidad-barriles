@@ -60,7 +60,7 @@ if st.button("Registrar Movimiento"):
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
             "entry.1195378605": observaciones,
-            "entry.1234567890": lote_barril  # Suponiendo que se añadió este campo en el formulario
+            "entry.1234567890": lote_barril
         }
         if estado == "Despachado" and incluir_latas == "Sí":
             payload["entry.1122334455"] = str(cantidad_latas)
@@ -85,13 +85,15 @@ st.markdown("<h2 style='color:#fff3aa;'>➕ Registrar Nuevo Cliente</h2>", unsaf
 
 nuevo_cliente = st.text_input("Nombre del nuevo cliente")
 direccion_cliente = st.text_input("Dirección del cliente")
+responsable_cliente = st.text_input("Responsable del alta de cliente")
 
 if st.button("Agregar Cliente"):
     if nuevo_cliente.strip() != "":
         form_cliente_url = "https://docs.google.com/forms/d/e/1FAIpQLScllMMM33p5F--_I6Y80gsLUsusGMTk0OA3XDVC9ocngoc2Hw/formResponse"
         payload_cliente = {
             "entry.1250409245": nuevo_cliente,
-            "entry.82359015": direccion_cliente
+            "entry.82359015": direccion_cliente,
+            "entry.1622274050": responsable_cliente
         }
         response = requests.post(form_cliente_url, data=payload_cliente)
         if response.status_code in [200, 302]:
