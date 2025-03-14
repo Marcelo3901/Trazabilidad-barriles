@@ -1,147 +1,95 @@
 import streamlit as st
-import pandas as pd
 import requests
-from urllib.parse import urlencode
-import base64
-import os
+import pandas as pd
 
-# CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
+# ============================
+# CONFIGURACIÓN DEL FORMULARIO GOOGLE LATAS
+# ============================
+FORM_URL_LATAS = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
 
-# IMAGEN DE FONDO PERSONALIZADA Y ESTILOS GENERALES
-if os.path.exists("background.jpg"):
-    with open("background.jpg", "rb") as img:
-        encoded = base64.b64encode(img.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
-        html, body, [class*="st"]  {{
-            font-family: 'Roboto', sans-serif;
-            color: #fff3aa;
-        }}
-        .stApp {{
-            background-image: url("data:image/jpeg;base64,{encoded}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        .stTextInput > div > div > input,
-        .stSelectbox > div > div,
-        .stTextArea > div > textarea {{
-            background-color: #ffffff10 !important;
-            color: #fff3aa !important;
-            border-radius: 10px;
-        }}
-        .stButton > button {{
-            background-color: #55dcad !important;
-            color: #fff3aa !important;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-        }}
-        .stDataFrame, .stTable {{
-            background-color: rgba(0,0,0,0.6);
-            border-radius: 10px;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
+# Campos del formulario (entry.xxxxx)
+ENTRY_ESTILO = "entry.689047838"
+ENTRY_CANTIDAD = "entry.457965266"
+ENTRY_LOTE = "entry.2096096606"
+ENTRY_CLIENTE = "entry.1478892985"
+ENTRY_RESPONSABLE = "entry.1774006398"
 
-# TÍTULO PRINCIPAL
-st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>", unsafe_allow_html=True)
+# URL de hoja de cálculo de latas (solo para lectura, los datos se ven reflejados ahí automáticamente)
+URL_HOJA_DATOS_LATAS = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/export?format=csv&gid=0"
 
-# ----------------------------------------
-# FORMULARIO DE REGISTRO DE BARRILES
-# ----------------------------------------
-st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
+# ============================
+# FUNCIÓN PARA ENVIAR DATOS AL FORMULARIO DE LATAS
+# ============================
+def enviar_lote_latas(estilo, cantidad, lote, cliente, responsable):
+    form_data = {
+        ENTRY_ESTILO: estilo,
+        ENTRY_CANTIDAD: cantidad,
+        ENTRY_LOTE: lote,
+        ENTRY_CLIENTE: cliente,
+        ENTRY_RESPONSABLE: responsable
+    }
+    response = requests.post(FORM_URL_LATAS, data=form_data)
+    return response.status_code == 200 or response.status_code == 302
 
-# Entrada de código del barril
-codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
-codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
+# ============================
+# INTERFAZ STREAMLIT
+# ============================
+st.set_page_config(page_title="Registro de Latas", page_icon="🍺")
+st.title("📦 Registro de Despacho de Latas")
 
-# Lote del producto (9 dígitos)
-lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
+st.subheader("➕ Registrar Despacho de Latas")
 
-# Estilo de cerveza
-estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
-           "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
-           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
-estilo_cerveza = st.selectbox("Estilo", estilos)
+# Primer lote
+with st.form(key="form_lote_latas"):
+    st.markdown("### Lote Principal")
+    estilo_1 = st.text_input("Estilo")
+    cantidad_1 = st.number_input("Cantidad", min_value=1, step=1)
+    lote_1 = st.text_input("Lote")
+    cliente_1 = st.text_input("Cliente")
+    responsable_1 = st.text_input("Responsable")
+    
+    # Sección para múltiples lotes opcionales
+    st.markdown("### ➕ Agregar Otro Lote (Opcional)")
+    agregar_otro = st.checkbox("Agregar otro lote de latas")
 
-# Estado del barril
-estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+    estilo_2 = cantidad_2 = lote_2 = cliente_2 = responsable_2 = None
+    if agregar_otro:
+        estilo_2 = st.text_input("Estilo (Segundo lote)", key="estilo2")
+        cantidad_2 = st.number_input("Cantidad (Segundo lote)", min_value=1, step=1, key="cantidad2")
+        lote_2 = st.text_input("Lote (Segundo lote)", key="lote2")
+        cliente_2 = st.text_input("Cliente (Segundo lote)", key="cliente2")
+        responsable_2 = st.text_input("Responsable (Segundo lote)", key="responsable2")
 
-# Leer lista de clientes desde Google Sheets
-try:
-    url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
-    df_clientes = pd.read_csv(url_clientes)
-    df_clientes.columns = df_clientes.columns.str.strip()
-    lista_clientes = df_clientes["Nombre"].dropna().astype(str).tolist()
-except Exception as e:
-    lista_clientes = []
-    st.warning(f"No se pudieron cargar los clientes: {e}")
+    submitted = st.form_submit_button("📤 Enviar Registro")
 
-# Mostrar campo de cliente solo si el estado es "Despachado"
-cliente = "Planta Castiza"
-if estado_barril == "Despachado" and lista_clientes:
-    cliente = st.selectbox("Cliente", lista_clientes)
-
-# Campos adicionales si hay despacho de latas
-incluye_latas = "No"
-cantidad_latas = ""
-lote_latas = ""
-cantidad_latas2 = ""
-lote_latas2 = ""
-
-if estado_barril == "Despachado":
-    incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
-    if incluye_latas == "Sí":
-        cantidad_latas = st.number_input("Cantidad de latas", min_value=1, step=1)
-        lote_latas = st.text_input("Lote de las latas (9 dígitos - formato DDMMYYXXX)")
-
-        # Botón para ingresar segundo lote de latas
-        agregar_otro_lote = st.checkbox("Agregar otro lote de latas")
-        if agregar_otro_lote:
-            cantidad_latas2 = st.number_input("Cantidad de latas (lote adicional)", min_value=1, step=1, key="cant2")
-            lote_latas2 = st.text_input("Lote adicional de las latas (9 dígitos - formato DDMMYYXXX)", key="lote2")
-
-# Responsable
-responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
-responsable = st.selectbox("Responsable", responsables)
-
-# Observaciones
-observaciones = st.text_area("Observaciones")
-
-# Enviar a Google Forms
-if st.button("Guardar Registro"):
-    if codigo_valido and lote_valido:
-        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-
-        # Completa con los IDs reales de tus campos en el formulario
-        payload = {
-            "entry.311770370": codigo_barril,
-            "entry.1283669263": estilo_cerveza,
-            "entry.1545499818": estado_barril,
-            "entry.91059345": cliente,
-            "entry.1661747572": responsable,
-            "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto,        # ← Campo ficticio (reemplazar por el real)
-            "entry.9876543210": incluye_latas,        # ← Campo ficticio
-            "entry.1122334455": str(cantidad_latas),  # ← Campo ficticio
-            "entry.9988776655": lote_latas,           # ← Campo ficticio
-            "entry.2233445566": str(cantidad_latas2), # ← Campo ficticio
-            "entry.6677889900": lote_latas2           # ← Campo ficticio
-        }
-
-        response = requests.post(form_url, data=payload)
-        if response.status_code == 200:
-            st.success("✅ Registro enviado correctamente.")
+    if submitted:
+        if not estilo_1 or not cantidad_1 or not lote_1 or not cliente_1 or not responsable_1:
+            st.warning("Por favor completa todos los campos del lote principal.")
         else:
-            st.warning("⚠️ Hubo un problema al enviar el formulario. Intenta nuevamente.")
-    else:
-        st.warning("❌ El código del barril y el lote del producto deben tener el formato correcto.")
+            exito1 = enviar_lote_latas(estilo_1, cantidad_1, lote_1, cliente_1, responsable_1)
+            if exito1:
+                st.success("✅ Lote principal enviado correctamente.")
+            else:
+                st.error("❌ Error al enviar el lote principal.")
 
+            if agregar_otro:
+                if not estilo_2 or not cantidad_2 or not lote_2 or not cliente_2 or not responsable_2:
+                    st.warning("Debes completar todos los campos del segundo lote si marcaste la opción.")
+                else:
+                    exito2 = enviar_lote_latas(estilo_2, cantidad_2, lote_2, cliente_2, responsable_2)
+                    if exito2:
+                        st.success("✅ Segundo lote enviado correctamente.")
+                    else:
+                        st.error("❌ Error al enviar el segundo lote.")
+
+# ============================
+# MOSTRAR DATOS DESDE GOOGLE SHEETS
+# ============================
+st.subheader("📄 Registros Actuales de Latas")
+
+try:
+    df_latas = pd.read_csv(URL_HOJA_DATOS_LATAS)
+    st.dataframe(df_latas, use_container_width=True)
+except Exception as e:
+    st.error("No se pudo cargar la hoja de registros de latas.")
+    st.exception(e)
