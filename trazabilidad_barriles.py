@@ -1,95 +1,88 @@
 import streamlit as st
-import requests
 import pandas as pd
+import requests
+from urllib.parse import urlencode
 
-# ============================
-# CONFIGURACIÓN DEL FORMULARIO GOOGLE LATAS
-# ============================
-FORM_URL_LATAS = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+# CONFIGURACIÓN DE LA PÁGINA
+st.set_page_config(page_title="Registro de Despacho de Latas", layout="centered")
 
-# Campos del formulario (entry.xxxxx)
-ENTRY_ESTILO = "entry.689047838"
-ENTRY_CANTIDAD = "entry.457965266"
-ENTRY_LOTE = "entry.2096096606"
-ENTRY_CLIENTE = "entry.1478892985"
-ENTRY_RESPONSABLE = "entry.1774006398"
+# TÍTULO PRINCIPAL
+st.markdown("<h1 style='text-align:center; color:#fff3aa;'>📦 Registro de Despacho de Latas</h1>", unsafe_allow_html=True)
 
-# URL de hoja de cálculo de latas (solo para lectura, los datos se ven reflejados ahí automáticamente)
-URL_HOJA_DATOS_LATAS = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/export?format=csv&gid=0"
-
-# ============================
-# FUNCIÓN PARA ENVIAR DATOS AL FORMULARIO DE LATAS
-# ============================
-def enviar_lote_latas(estilo, cantidad, lote, cliente, responsable):
-    form_data = {
-        ENTRY_ESTILO: estilo,
-        ENTRY_CANTIDAD: cantidad,
-        ENTRY_LOTE: lote,
-        ENTRY_CLIENTE: cliente,
-        ENTRY_RESPONSABLE: responsable
-    }
-    response = requests.post(FORM_URL_LATAS, data=form_data)
-    return response.status_code == 200 or response.status_code == 302
-
-# ============================
-# INTERFAZ STREAMLIT
-# ============================
-st.set_page_config(page_title="Registro de Latas", page_icon="🍺")
-st.title("📦 Registro de Despacho de Latas")
-
-st.subheader("➕ Registrar Despacho de Latas")
-
-# Primer lote
-with st.form(key="form_lote_latas"):
-    st.markdown("### Lote Principal")
-    estilo_1 = st.text_input("Estilo")
-    cantidad_1 = st.number_input("Cantidad", min_value=1, step=1)
-    lote_1 = st.text_input("Lote")
-    cliente_1 = st.text_input("Cliente")
-    responsable_1 = st.text_input("Responsable")
-    
-    # Sección para múltiples lotes opcionales
-    st.markdown("### ➕ Agregar Otro Lote (Opcional)")
-    agregar_otro = st.checkbox("Agregar otro lote de latas")
-
-    estilo_2 = cantidad_2 = lote_2 = cliente_2 = responsable_2 = None
-    if agregar_otro:
-        estilo_2 = st.text_input("Estilo (Segundo lote)", key="estilo2")
-        cantidad_2 = st.number_input("Cantidad (Segundo lote)", min_value=1, step=1, key="cantidad2")
-        lote_2 = st.text_input("Lote (Segundo lote)", key="lote2")
-        cliente_2 = st.text_input("Cliente (Segundo lote)", key="cliente2")
-        responsable_2 = st.text_input("Responsable (Segundo lote)", key="responsable2")
-
-    submitted = st.form_submit_button("📤 Enviar Registro")
-
-    if submitted:
-        if not estilo_1 or not cantidad_1 or not lote_1 or not cliente_1 or not responsable_1:
-            st.warning("Por favor completa todos los campos del lote principal.")
-        else:
-            exito1 = enviar_lote_latas(estilo_1, cantidad_1, lote_1, cliente_1, responsable_1)
-            if exito1:
-                st.success("✅ Lote principal enviado correctamente.")
-            else:
-                st.error("❌ Error al enviar el lote principal.")
-
-            if agregar_otro:
-                if not estilo_2 or not cantidad_2 or not lote_2 or not cliente_2 or not responsable_2:
-                    st.warning("Debes completar todos los campos del segundo lote si marcaste la opción.")
-                else:
-                    exito2 = enviar_lote_latas(estilo_2, cantidad_2, lote_2, cliente_2, responsable_2)
-                    if exito2:
-                        st.success("✅ Segundo lote enviado correctamente.")
-                    else:
-                        st.error("❌ Error al enviar el segundo lote.")
-
-# ============================
-# MOSTRAR DATOS DESDE GOOGLE SHEETS
-# ============================
-st.subheader("📄 Registros Actuales de Latas")
-
+# LEER LISTA DE CLIENTES DESDE GOOGLE SHEETS
 try:
-    df_latas = pd.read_csv(URL_HOJA_DATOS_LATAS)
-    st.dataframe(df_latas, use_container_width=True)
+    url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
+    df_clientes = pd.read_csv(url_clientes)
+    df_clientes.columns = df_clientes.columns.str.strip()
+    lista_clientes = df_clientes["Nombre"].dropna().astype(str).tolist()
 except Exception as e:
-    st.error("No se pudo cargar la hoja de registros de latas.")
-    st.exception(e)
+    lista_clientes = []
+    st.warning(f"No se pudieron cargar los clientes: {e}")
+
+# FORMULARIO DE REGISTRO
+st.markdown("<h2 style='color:#fff3aa;'>📋 Ingresar Datos</h2>", unsafe_allow_html=True)
+
+# Estilo de cerveza
+estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+           "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
+           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+estilo_cerveza = st.selectbox("Estilo", estilos)
+
+# Cantidad de latas
+cantidad_latas = st.number_input("Cantidad de latas", min_value=1, step=1)
+
+# Lote del producto
+lote_producto = st.text_input("Lote de las latas (9 dígitos - formato DDMMYYXXX)")
+lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
+
+# Cliente
+cliente = st.selectbox("Cliente", lista_clientes) if lista_clientes else "Planta Castiza"
+
+# Responsable
+responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
+responsable = st.selectbox("Responsable", responsables)
+
+# Botón para ingresar segundo lote de latas
+agregar_otro_lote = st.checkbox("Agregar otro lote de latas")
+cantidad_latas2 = ""
+lote_latas2 = ""
+
+if agregar_otro_lote:
+    cantidad_latas2 = st.number_input("Cantidad de latas (lote adicional)", min_value=1, step=1, key="cant2")
+    lote_latas2 = st.text_input("Lote adicional de las latas (9 dígitos - formato DDMMYYXXX)", key="lote2")
+
+# ENVIAR A GOOGLE FORMS
+if st.button("Guardar Registro"):
+    if lote_valido:
+        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+        
+        payload = {
+            "entry.689047838": estilo_cerveza,
+            "entry.457965266": str(cantidad_latas),
+            "entry.2096096606": lote_producto,
+            "entry.1478892985": cliente,
+            "entry.1774006398": responsable,
+        }
+        
+        response = requests.post(form_url, data=payload)
+        if response.status_code == 200:
+            st.success("✅ Registro enviado correctamente.")
+        else:
+            st.warning("⚠️ Hubo un problema al enviar el formulario. Intenta nuevamente.")
+
+        # Enviar segundo lote si se agregó
+        if agregar_otro_lote and lote_latas2.isdigit() and len(lote_latas2) == 9:
+            payload2 = {
+                "entry.689047838": estilo_cerveza,
+                "entry.457965266": str(cantidad_latas2),
+                "entry.2096096606": lote_latas2,
+                "entry.1478892985": cliente,
+                "entry.1774006398": responsable,
+            }
+            response2 = requests.post(form_url, data=payload2)
+            if response2.status_code == 200:
+                st.success("✅ Segundo lote registrado correctamente.")
+            else:
+                st.warning("⚠️ Hubo un problema al enviar el segundo lote. Intenta nuevamente.")
+    else:
+        st.warning("❌ El lote del producto debe tener el formato correcto.")
