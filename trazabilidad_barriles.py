@@ -201,4 +201,4 @@ try:
     else:
         st.warning("No se encontraron resultados.")
 except Exception as e:
-    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
+    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}") 
