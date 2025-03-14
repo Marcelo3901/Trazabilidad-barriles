@@ -62,7 +62,6 @@ st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>",
 codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
 
-
 # Estilo de cerveza
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
@@ -82,14 +81,19 @@ try:
     df_clientes = pd.read_csv(url_clientes)
     df_clientes.columns = df_clientes.columns.str.strip()
     lista_clientes = df_clientes["Nombre"].dropna().astype(str).tolist()
+    dict_direcciones = df_clientes.set_index("Nombre")["Dirección"].to_dict()
 except Exception as e:
     lista_clientes = []
+    dict_direcciones = {}
     st.warning(f"No se pudieron cargar los clientes: {e}")
 
 # Mostrar campo de cliente solo si el estado es "Despachado"
 cliente = "Planta Castiza"
+direccion_cliente = ""
 if estado_barril == "Despachado" and lista_clientes:
     cliente = st.selectbox("Cliente", lista_clientes)
+    direccion_cliente = dict_direcciones.get(cliente, "")
+    st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
 # Campos adicionales si hay despacho de latas
 incluye_latas = "No"
@@ -122,17 +126,17 @@ if st.button("Guardar Registro"):
             "entry.1465957833": observaciones,
             "entry.1234567890": lote_producto,
             "entry.9876543210": incluye_latas,
-            "entry.1122334455": str(cantidad_latas),
-            "entry.9988776655": lote_latas
+            "entry.1122334455": str(cantidad_latas) if incluye_latas == "Sí" else "",
+            "entry.9988776655": lote_latas if incluye_latas == "Sí" else ""
         }
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
+            st.balloons()
         else:
             st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
     else:
         st.warning("⚠️ Código o lote inválido. El código debe tener 5 dígitos y el lote 9 dígitos.")
-
 # ----------------------------------------
 # FORMULARIO NUEVO CLIENTE
 # ----------------------------------------
