@@ -71,7 +71,7 @@ if estado_barril in ["Despachado", "En cuarto frío"]:
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
     lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
-estilos = [ "Vacío" "Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+estilos = [ "Vacío", "Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
            "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
 estilo_cerveza = st.selectbox("Estilo", estilos)
