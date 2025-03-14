@@ -57,16 +57,22 @@ st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Traza
 st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
-codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
-codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
+
+codigo_barril = ""
+codigo_valido = False
+lote_producto = ""
+lote_valido = False
+if estado_barril in ["Despachado", "En cuarto frío"]:
+    codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
+    codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
+
+    lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
+    lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
            "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
 estilo_cerveza = st.selectbox("Estilo", estilos)
-
-lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
 try:
     url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
@@ -102,7 +108,7 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 if st.button("Guardar Registro"):
-    if codigo_valido and lote_valido:
+    if estado_barril not in ["Lavado en bodega", "Sucio"] or (codigo_valido and lote_valido):
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
         payload = {
             "entry.311770370": codigo_barril,
