@@ -94,12 +94,6 @@ if estado_barril == "Despachado" and lista_clientes:
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
-# INFORMACIÓN ADICIONAL PARA TRAZABILIDAD
-if estado_barril == "Despachado":
-    st.markdown("<h4 style='color:#fff3aa;'>📦 Información adicional del despacho</h4>", unsafe_allow_html=True)
-    cantidad_barriles = st.number_input("Cantidad de barriles", min_value=1, step=1)
-    lote_general = st.text_input("Lote general del despacho (opcional)")
-
 # DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
 latas = []
 if estado_barril == "Despachado":
