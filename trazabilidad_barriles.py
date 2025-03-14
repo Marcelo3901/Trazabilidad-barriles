@@ -58,8 +58,6 @@ st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>",
 
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
-codigo_barril = ""
-codigo_valido = False
 lote_producto = ""
 lote_valido = False
 if estado_barril in ["Despachado", "En cuarto frío"]:
@@ -152,50 +150,3 @@ if st.button("Agregar Cliente"):
             st.error(f"❌ Error al enviar el cliente. Código: {response.status_code}")
     else:
         st.warning("⚠️ El nombre del cliente no puede estar vacío")
-
-# ÚLTIMOS MOVIMIENTOS
-# ----------------------------------------
-st.markdown("---")
-st.markdown("<h2 style='color:#fff3aa;'>📑 Últimos 10 Movimientos</h2>", unsafe_allow_html=True)
-
-try:
-    url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
-    df_mov = pd.read_csv(url_datos)
-    df_mov.columns = df_mov.columns.str.strip()
-    if not df_mov.empty:
-        df_mov = df_mov[df_mov["Código"].notna()]
-        st.dataframe(df_mov.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
-    else:
-        st.warning("⚠️ La hoja está vacía.")
-except Exception as e:
-    st.error(f"⚠️ No se pudo cargar la hoja de movimientos: {e}")
-
-# ----------------------------------------
-# BUSCAR REGISTROS
-# ----------------------------------------
-st.markdown("---")
-st.markdown("<h2 style='color:#fff3aa;'>🔍 Buscar Barriles</h2>", unsafe_allow_html=True)
-
-try:
-    df_search = pd.read_csv(url_datos)
-    df_search.columns = df_search.columns.str.strip()
-
-    filtro_codigo = st.text_input("🔎 Buscar por código de barril")
-    filtro_cliente = st.text_input("🔎 Buscar por cliente")
-    filtro_estado = st.selectbox("📌 Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
-
-    df_filtrado = df_search.copy()
-    if filtro_codigo:
-        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo)]
-    if filtro_cliente:
-        df_filtrado = df_filtrado[df_filtrado["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
-    if filtro_estado:
-        df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
-
-    if not df_filtrado.empty:
-        st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
-    else:
-        st.warning("⚠️ No se encontraron registros con los filtros aplicados.")
-
-except Exception as e:
-    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
