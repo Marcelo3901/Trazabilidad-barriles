@@ -163,3 +163,32 @@ if st.button("Guardar Registro"):
         st.success("✅ Registro enviado correctamente.")
     else:
         st.warning("❌ Debes ingresar un código válido del barril y un lote del producto, o seleccionar despacho de latas.")
+
+st.markdown("---")
+st.markdown("<h2 style='color:#fff3aa;'>🔍 Buscar Barriles</h2>", unsafe_allow_html=True)
+
+try:
+    df_search = pd.read_csv(url_datos)
+    df_search.columns = df_search.columns.str.strip()
+
+    # Campos de búsqueda
+    filtro_codigo = st.text_input("🔎 Buscar por código de barril")
+    filtro_cliente = st.text_input("🔎 Buscar por cliente")
+    filtro_estado = st.selectbox("📌 Filtrar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+    # Aplicar filtros
+    df_filtrado = df_search.copy()
+    if filtro_codigo:
+        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo)]
+    if filtro_cliente:
+        df_filtrado = df_filtrado[df_filtrado["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
+    if filtro_estado:
+        df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
+
+    # Mostrar resultados
+    if not df_filtrado.empty:
+        st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    else:
+        st.warning("⚠️ No se encontraron resultados.")
+except Exception as e:
+    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
