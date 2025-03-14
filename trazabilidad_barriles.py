@@ -109,8 +109,8 @@ if estado_barril == "Despachado":
 
         for i in range(st.session_state.num_latas):
             st.markdown(f"**[Lata {i+1}]**")
-            cantidad = st.number_input(f"Cantidad (Lata {i+1})", min_value=1, key=f"cantidad_lata_{i}")
-            lote = st.text_input(f"Lote (Lata {i+1})", key=f"lote_lata_{i}")
+            cantidad = st.number_input(f"Cantidad (Orden {i+1})", min_value=1, key=f"cantidad_lata_{i}")
+            lote = st.text_input(f"Lote (orden {i+1})", key=f"lote_lata_{i}")
             latas.append((cantidad, lote))
 
         if st.button("➕ Agregar otra lata"):
