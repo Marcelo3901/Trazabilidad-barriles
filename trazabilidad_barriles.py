@@ -58,6 +58,9 @@ st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Traza
 # ----------------------------------------
 st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
+# Estado del barril
+estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
 # Entrada de código del barril
 codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
@@ -68,8 +71,6 @@ estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
 estilo_cerveza = st.selectbox("Estilo", estilos)
 
-# Estado del barril
-estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 # Lote del producto (9 dígitos)
 lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
