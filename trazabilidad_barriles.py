@@ -3,6 +3,54 @@ import pandas as pd
 import requests
 from datetime import datetime
 
+# CONFIGURACIÓN DE LA PÁGINA
+st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
+
+# IMAGEN DE FONDO PERSONALIZADA Y ESTILOS GENERALES
+if os.path.exists("background.jpg"):
+    with open("background.jpg", "rb") as img:
+        encoded = base64.b64encode(img.read()).decode()
+    st.markdown(
+        f"""
+        <style>
+        @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
+        html, body, [class*="st"]  {{
+            font-family: 'Roboto', sans-serif;
+            color: #fff3aa;
+        }}
+        .stApp {{
+            background-image: url("data:image/jpeg;base64,{encoded}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+            background-attachment: fixed;
+        }}
+        .stTextInput > div > div > input,
+        .stSelectbox > div > div,
+        .stTextArea > div > textarea {{
+            background-color: #ffffff10 !important;
+            color: #fff3aa !important;
+            border-radius: 10px;
+        }}
+        .stButton > button {{
+            background-color: #55dcad !important;
+            color: #fff3aa !important;
+            border: none;
+            border-radius: 10px;
+            font-weight: bold;
+        }}
+        .stDataFrame, .stTable {{
+            background-color: rgba(0,0,0,0.6);
+            border-radius: 10px;
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+# TÍTULO PRINCIPAL
+st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>", unsafe_allow_html=True)
+
 # URLs de Google Sheets
 url_datos = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQGl3m5Hx7jOfhHj7a_ZP39pSHozEf5aIk-0U_KxLzo7xJQ1UV3TxXguHtkfFgNZvDnXqRu_V9Djq4v/pub?output=csv"
 url_clientes = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRp2WaIAPuZDpFzxnX0KHZZlMg3P5d6oRNB_a7BYzqJ7W_uVYVWlsfE5eOgBvAxDj0faRhffCnFoUUL/pub?output=csv"
