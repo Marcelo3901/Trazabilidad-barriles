@@ -1,117 +1,81 @@
 import streamlit as st
 import pandas as pd
 import requests
-from urllib.parse import urlencode
-import base64
-import os
+from datetime import datetime
 
-# CONFIGURACIÓN DE LA PÁGINA
-st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
+# URL de lectura de datos del formulario de barriles (hoja de Google Sheets)
+url_datos = "https://docs.google.com/spreadsheets/d/e/2PACX-1vQGl3m5Hx7jOfhHj7a_ZP39pSHozEf5aIk-0U_KxLzo7xJQ1UV3TxXguHtkfFgNZvDnXqRu_V9Djq4v/pub?output=csv"
+url_clientes = "https://docs.google.com/spreadsheets/d/e/2PACX-1vRp2WaIAPuZDpFzxnX0KHZZlMg3P5d6oRNB_a7BYzqJ7W_uVYVWlsfE5eOgBvAxDj0faRhffCnFoUUL/pub?output=csv"
 
-# IMAGEN DE FONDO PERSONALIZADA Y ESTILOS GENERALES
-if os.path.exists("background.jpg"):
-    with open("background.jpg", "rb") as img:
-        encoded = base64.b64encode(img.read()).decode()
-    st.markdown(
-        f"""
-        <style>
-        @import url('https://fonts.googleapis.com/css2?family=Roboto&display=swap');
-        html, body, [class*="st"]  {{
-            font-family: 'Roboto', sans-serif;
-            color: #fff3aa;
-        }}
-        .stApp {{
-            background-image: url("data:image/jpeg;base64,{encoded}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-            background-attachment: fixed;
-        }}
-        .stTextInput > div > div > input,
-        .stSelectbox > div > div,
-        .stTextArea > div > textarea {{
-            background-color: #ffffff10 !important;
-            color: #fff3aa !important;
-            border-radius: 10px;
-        }}
-        .stButton > button {{
-            background-color: #55dcad !important;
-            color: #fff3aa !important;
-            border: none;
-            border-radius: 10px;
-            font-weight: bold;
-        }}
-        .stDataFrame, .stTable {{
-            background-color: rgba(0,0,0,0.6);
-            border-radius: 10px;
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-# TÍTULO PRINCIPAL
-st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>", unsafe_allow_html=True)
+st.set_page_config(page_title="Trazabilidad de Barriles", layout="wide")
+st.markdown("<h1 style='color:#f5e342;'>📦 Trazabilidad de Barriles</h1>", unsafe_allow_html=True)
 
 # ----------------------------------------
-# FORMULARIO DE REGISTRO DE BARRILES
+# FORMULARIO REGISTRO DE BARRILES
 # ----------------------------------------
-st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
+st.markdown("---")
+st.markdown("<h2 style='color:#fff3aa;'>📝 Registrar Movimiento de Barril</h2>", unsafe_allow_html=True)
 
-# Entrada de código del barril
-codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
-codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
+codigo = st.text_input("Código del barril (opcional para 'Barril sucio' y 'Lavado en bodega')")
+lote_barril = st.text_input("Lote del producto (9 dígitos: DDMMYYXXX)")
+estilo = st.selectbox("Estilo de cerveza", ["Pale Ale", "IPA", "Stout", "Lager", "Amber Ale", "Otro"])
+cliente = ""
 
-# Estilo de cerveza
-estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
-           "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
-           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
-estilo_cerveza = st.selectbox("Estilo", estilos)
-
-# Estado del barril
-estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
-
-# Leer lista de clientes desde Google Sheets
 try:
-    url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
     df_clientes = pd.read_csv(url_clientes)
     df_clientes.columns = df_clientes.columns.str.strip()
-    lista_clientes = df_clientes["Nombre"].dropna().astype(str).tolist()
-except Exception as e:
-    lista_clientes = []
-    st.warning(f"No se pudieron cargar los clientes: {e}")
+    cliente = st.selectbox("Cliente", df_clientes["Nombre"] + " - " + df_clientes["Dirección"])
+except:
+    cliente = st.text_input("Cliente (ingrese manual si no carga lista)")
 
-# Mostrar campo de cliente solo si el estado es "Despachado"
-cliente = "Planta Castiza"
-if estado_barril == "Despachado" and lista_clientes:
-    cliente = st.selectbox("Cliente", lista_clientes)
-
-# Responsable
-responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
-responsable = st.selectbox("Responsable", responsables)
-
-# Observaciones
+estado = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+responsable = st.text_input("Responsable del registro")
 observaciones = st.text_area("Observaciones")
 
-# Enviar a Google Forms
-if st.button("Guardar Registro"):
-    if codigo_valido:
-        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+# Campos adicionales si estado es "Despachado"
+incluir_latas = False
+cantidad_latas = ""
+lote_latas = ""
+cantidad_latas_2 = ""
+lote_latas_2 = ""
+
+if estado == "Despachado":
+    incluir_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
+    if incluir_latas == "Sí":
+        cantidad_latas = st.number_input("Cantidad de latas", min_value=0, step=1)
+        lote_latas = st.text_input("Lote de las latas (9 dígitos: DDMMYYXXX)")
+
+        agregar_segundo_lote = st.checkbox("¿Agregar latas de otro lote?")
+        if agregar_segundo_lote:
+            cantidad_latas_2 = st.number_input("Cantidad de latas (segundo lote)", min_value=0, step=1)
+            lote_latas_2 = st.text_input("Lote de las latas (segundo lote)")
+
+if st.button("Registrar Movimiento"):
+    if estado in ["Barril sucio", "Lavado en bodega"] or codigo.strip() != "":
+        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSd_kmL2A1nFtsuUlQINrDLlUsbi0iMupEL1UxuYUsEw8qchXQ/formResponse"
         payload = {
-            "entry.311770370": codigo_barril,
-            "entry.1283669263": estilo_cerveza,
-            "entry.1545499818": estado_barril,
+            "entry.311770370": codigo,
+            "entry.1283669263": estilo,
+            "entry.1545499818": estado,
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
-            "entry.1465957833": observaciones
+            "entry.1195378605": observaciones,
+            "entry.1234567890": lote_barril  # Suponiendo que se añadió este campo en el formulario
         }
+        if estado == "Despachado" and incluir_latas == "Sí":
+            payload["entry.1122334455"] = str(cantidad_latas)
+            payload["entry.2233445566"] = lote_latas
+            if cantidad_latas_2 and lote_latas_2:
+                payload["entry.3344556677"] = str(cantidad_latas_2)
+                payload["entry.4455667788"] = lote_latas_2
+
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
         else:
             st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
     else:
-        st.warning("⚠️ Código inválido. Debe tener 5 dígitos y empezar por 20, 30 o 58.")
+        st.warning("⚠️ El campo 'Código' es obligatorio para este tipo de registro")
 
 # ----------------------------------------
 # FORMULARIO NUEVO CLIENTE
@@ -138,24 +102,6 @@ if st.button("Agregar Cliente"):
         st.warning("⚠️ El nombre del cliente no puede estar vacío")
 
 # ----------------------------------------
-# ÚLTIMOS MOVIMIENTOS
-# ----------------------------------------
-st.markdown("---")
-st.markdown("<h2 style='color:#fff3aa;'>📑 Últimos 10 Movimientos</h2>", unsafe_allow_html=True)
-
-try:
-    url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
-    df_mov = pd.read_csv(url_datos)
-    df_mov.columns = df_mov.columns.str.strip()
-    if not df_mov.empty:
-        df_mov = df_mov[df_mov["Código"].notna()]
-        st.dataframe(df_mov.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
-    else:
-        st.warning("⚠️ La hoja está vacía.")
-except Exception as e:
-    st.error(f"⚠️ No se pudo cargar la hoja de movimientos: {e}")
-
-# ----------------------------------------
 # BUSCAR REGISTROS
 # ----------------------------------------
 st.markdown("---")
@@ -180,7 +126,4 @@ try:
     if not df_filtrado.empty:
         st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
-        st.warning("No se encontraron resultados.")
-except Exception as e:
-    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
-
+        st.wa
