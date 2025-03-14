@@ -119,10 +119,10 @@ if st.button("Guardar Registro"):
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto,       # ← Campo ficticio, cámbialo por el real en tu formulario
-            "entry.9876543210": incluye_latas,       # ← Campo ficticio, cámbialo por el real
-            "entry.1122334455": str(cantidad_latas), # ← Campo ficticio, cámbialo por el real
-            "entry.9988776655": lote_latas           # ← Campo ficticio, cámbialo por el real
+            "entry.1234567890": lote_producto,
+            "entry.9876543210": incluye_latas,
+            "entry.1122334455": str(cantidad_latas),
+            "entry.9988776655": lote_latas
         }
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
@@ -199,6 +199,7 @@ try:
     if not df_filtrado.empty:
         st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
-        st.warning("No se encontraron resultados.")
+        st.info("No se encontraron resultados con los filtros aplicados.")
+
 except Exception as e:
-    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}") 
+    st.error(f"❌ Error al cargar o filtrar los datos: {e}")
