@@ -56,7 +56,7 @@ st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Traza
 # FORMULARIO DE REGISTRO DE BARRILES
 st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
-estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 codigo_barril = ""
 codigo_valido = False
