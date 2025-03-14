@@ -58,12 +58,16 @@ st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>",
 
 estado_barril = st.selectbox("Estado del barril", ["Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
+codigo_barril = ""
+codigo_valido = False
 lote_producto = ""
 lote_valido = False
-if estado_barril in ["Despachado", "En cuarto frío"]:
+
+if estado_barril in ["Despachado", "En cuarto frío", "Lavado en bodega", "Sucio"]:
     codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
     codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
 
+if estado_barril in ["Despachado", "En cuarto frío"]:
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
     lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
@@ -106,7 +110,11 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 if st.button("Guardar Registro"):
-    if estado_barril not in ["Lavado en bodega", "Sucio"] or (codigo_valido and lote_valido):
+    if estado_barril in ["Lavado en bodega", "Sucio"] and not codigo_valido:
+        st.warning("⚠️ Código inválido. Debe tener 5 dígitos y comenzar por 20, 30 o 58.")
+    elif estado_barril in ["Despachado", "En cuarto frío"] and (not codigo_valido or not lote_valido):
+        st.warning("⚠️ Código o lote inválido. El código debe tener 5 dígitos y el lote 9 dígitos.")
+    else:
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
         payload = {
             "entry.311770370": codigo_barril,
@@ -115,7 +123,7 @@ if st.button("Guardar Registro"):
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto,
+            "entry.1234567890": lote_producto if estado_barril in ["Despachado", "En cuarto frío"] else "",
             "entry.9876543210": incluye_latas,
             "entry.1122334455": str(cantidad_latas) if incluye_latas == "Sí" else "",
             "entry.9988776655": lote_latas if incluye_latas == "Sí" else ""
@@ -126,8 +134,6 @@ if st.button("Guardar Registro"):
             st.balloons()
         else:
             st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
-    else:
-        st.warning("⚠️ Código o lote inválido. El código debe tener 5 dígitos y el lote 9 dígitos.")
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
