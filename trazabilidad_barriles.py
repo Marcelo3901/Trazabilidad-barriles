@@ -126,4 +126,6 @@ try:
     if not df_filtrado.empty:
         st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
-        st.wa
+        st.warning("No se encontraron resultados.")
+except Exception as e:
+    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
