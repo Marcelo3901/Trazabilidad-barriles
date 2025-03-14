@@ -94,14 +94,20 @@ if estado_barril == "Despachado" and lista_clientes:
 incluye_latas = "No"
 cantidad_latas = ""
 lote_latas = ""
-lote_latas_valido = True  # Por defecto
+cantidad_latas2 = ""
+lote_latas2 = ""
 
 if estado_barril == "Despachado":
     incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
         cantidad_latas = st.number_input("Cantidad de latas", min_value=1, step=1)
         lote_latas = st.text_input("Lote de las latas (9 dígitos - formato DDMMYYXXX)")
-        lote_latas_valido = lote_latas.isdigit() and len(lote_latas) == 9
+
+        # Botón para ingresar segundo lote de latas
+        agregar_otro_lote = st.checkbox("Agregar otro lote de latas")
+        if agregar_otro_lote:
+            cantidad_latas2 = st.number_input("Cantidad de latas (lote adicional)", min_value=1, step=1, key="cant2")
+            lote_latas2 = st.text_input("Lote adicional de las latas (9 dígitos - formato DDMMYYXXX)", key="lote2")
 
 # Responsable
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
@@ -112,14 +118,10 @@ observaciones = st.text_area("Observaciones")
 
 # Enviar a Google Forms
 if st.button("Guardar Registro"):
-    if not codigo_valido:
-        st.error("⚠️ El código del barril no es válido.")
-    elif not lote_valido:
-        st.error("⚠️ El lote del producto no es válido.")
-    elif incluye_latas == "Sí" and not lote_latas_valido:
-        st.error("⚠️ El lote de las latas debe tener 9 dígitos.")
-    else:
+    if codigo_valido and lote_valido:
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+
+        # Completa con los IDs reales de tus campos en el formulario
         payload = {
             "entry.311770370": codigo_barril,
             "entry.1283669263": estilo_cerveza,
@@ -127,16 +129,19 @@ if st.button("Guardar Registro"):
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto,         # ← CAMBIAR por el ID REAL del campo "Lote producto"
-            "entry.9876543210": incluye_latas,         # ← CAMBIAR por el ID REAL del campo "Incluye latas"
-            "entry.1122334455": str(cantidad_latas),   # ← CAMBIAR por el ID REAL del campo "Cantidad de latas"
-            "entry.9988776655": lote_latas             # ← CAMBIAR por el ID REAL del campo "Lote latas"
+            "entry.1234567890": lote_producto,        # ← Campo ficticio (reemplazar por el real)
+            "entry.9876543210": incluye_latas,        # ← Campo ficticio
+            "entry.1122334455": str(cantidad_latas),  # ← Campo ficticio
+            "entry.9988776655": lote_latas,           # ← Campo ficticio
+            "entry.2233445566": str(cantidad_latas2), # ← Campo ficticio
+            "entry.6677889900": lote_latas2           # ← Campo ficticio
         }
 
-        # Enviar el formulario
         response = requests.post(form_url, data=payload)
-
         if response.status_code == 200:
-            st.success("✅ Registro guardado correctamente.")
+            st.success("✅ Registro enviado correctamente.")
         else:
-            st.warning("⚠️ El registro fue enviado, pero la respuesta del servidor no fue 200. Verifica si se guardó.")
+            st.warning("⚠️ Hubo un problema al enviar el formulario. Intenta nuevamente.")
+    else:
+        st.warning("❌ El código del barril y el lote del producto deben tener el formato correcto.")
+
