@@ -94,13 +94,14 @@ if estado_barril == "Despachado" and lista_clientes:
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
+
 # DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
 latas = []
 if estado_barril == "Despachado":
     incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
         st.markdown("""
-        <h4 style='color:#fff3aa;'>🧃 Información de Latas</h4>
+        <h4 style='color:#fff3aa;'>🧃 Despacho Latas</h4>
         """, unsafe_allow_html=True)
 
         if "num_latas" not in st.session_state:
