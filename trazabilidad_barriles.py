@@ -100,15 +100,26 @@ if estado_barril == "Despachado":
     cantidad_barriles = st.number_input("Cantidad de barriles", min_value=1, step=1)
     lote_general = st.text_input("Lote general del despacho (opcional)")
 
-incluye_latas = "No"
-cantidad_latas = ""
-lote_latas = ""
-
+# DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
+latas = []
 if estado_barril == "Despachado":
     incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
-        cantidad_latas = st.number_input("Cantidad de latas", min_value=1, step=1)
-        lote_latas = st.text_input("Lote de las latas (9 dígitos - formato DDMMYYXXX)")
+        st.markdown("""
+        <h4 style='color:#fff3aa;'>🧃 Información de Latas</h4>
+        """, unsafe_allow_html=True)
+
+        if "num_latas" not in st.session_state:
+            st.session_state.num_latas = 1
+
+        for i in range(st.session_state.num_latas):
+            st.markdown(f"**[Lata {i+1}]**")
+            cantidad = st.number_input(f"Cantidad (Lata {i+1})", min_value=1, key=f"cantidad_lata_{i}")
+            lote = st.text_input(f"Lote (Lata {i+1})", key=f"lote_lata_{i}")
+            latas.append((cantidad, lote))
+
+        if st.button("➕ Agregar otra lata"):
+            st.session_state.num_latas += 1
 
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
 responsable = st.selectbox("Responsable", responsables)
@@ -131,11 +142,14 @@ if st.button("Guardar Registro"):
             "entry.1465957833": observaciones,
             "entry.1234567890": lote_producto if estado_barril in ["Despachado", "En cuarto frío"] else "",
             "entry.9876543210": incluye_latas,
-            "entry.1122334455": str(cantidad_latas) if incluye_latas == "Sí" else "",
-            "entry.9988776655": lote_latas if incluye_latas == "Sí" else "",
             "entry.4455667788": str(cantidad_barriles) if estado_barril == "Despachado" else "",
             "entry.5566778899": lote_general if estado_barril == "Despachado" else ""
         }
+
+        for idx, (cant, lot) in enumerate(latas):
+            payload[f"entry.lata_cantidad_{idx+1}"] = str(cant)
+            payload[f"entry.lata_lote_{idx+1}"] = lot
+
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
