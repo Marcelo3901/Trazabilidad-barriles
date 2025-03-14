@@ -1,7 +1,9 @@
 import streamlit as st
 import pandas as pd
 import requests
-from datetime import datetime
+from urllib.parse import urlencode
+import base64
+import os
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
