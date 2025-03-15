@@ -141,7 +141,7 @@ if st.button("Guardar Registro"):
             "entry.5566778899": lote_general if estado_barril == "Despacho" else ""
             
             # Enviar datos de despacho de latas si corresponde
-            if estado == "Despacho" and mostrar_latas and latas_tipo and latas_cantidad:
+            i
                 form_url_latas = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
                 payload_latas = {
                     "entry.689047838": estilo,
