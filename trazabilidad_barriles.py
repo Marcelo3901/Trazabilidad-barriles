@@ -135,7 +135,7 @@ if st.button("Guardar Registro"):
         st.balloons()
 
         if incluye_latas == "Sí" and len(latas) > 0:
-            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSfLatasFormularioEspecial/formResponse"
+            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
             for idx, (cant, lot) in enumerate(latas):
                 payload_latas = {
                     "entry.1000000000": str(cant),
