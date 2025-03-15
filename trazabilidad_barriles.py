@@ -174,6 +174,26 @@ if st.button("Agregar Cliente"):
             st.success("✅ Cliente agregado correctamente")
         else:
             st.error(f"❌ Error al agregar cliente. Código: {response.status_code}")
+
+# ----------------------------------------
+# ÚLTIMOS MOVIMIENTOS
+# ----------------------------------------
+st.markdown("---")
+st.markdown("<h2 style='color:#fff3aa;'>📑 Últimos 10 Movimientos</h2>", unsafe_allow_html=True)
+
+try:
+    url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
+    df_mov = pd.read_csv(url_datos)
+    df_mov.columns = df_mov.columns.str.strip()
+    if not df_mov.empty:
+        df_mov = df_mov[df_mov["Código"].notna()]
+        st.dataframe(df_mov.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    else:
+        st.warning("⚠️ La hoja está vacía.")
+except Exception as e:
+    st.error(f"⚠️ No se pudo cargar la hoja de movimientos: {e}")
+
+
 # BUSCAR REGISTROS
 # ----------------------------------------
 st.markdown("---")
