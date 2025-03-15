@@ -94,9 +94,9 @@ if estado_barril == "Despacho" and lista_clientes:
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
-
 # DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
 latas = []
+incluye_latas = "No"
 if estado_barril == "Despacho":
     incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
@@ -136,30 +136,24 @@ if st.button("Guardar Registro"):
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
             "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
-            "entry.9876543210": incluye_latas,
-            "entry.4455667788": str(cantidad_barriles) if estado_barril == "Despacho" else "",
-            "entry.5566778899": lote_general if estado_barril == "Despacho" else ""
-            
-            # Enviar datos de despacho de latas si corresponde
-        
-                form_url_latas = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-                payload_latas = {
-                    "entry.689047838": estilo,
-                    "entry.457965266": latas_cantidad,
-                    "entry.2096096606": latas_lote,
-                    "entry.1478892985": cliente,
-                    "entry.1774006398": responsable
-                }
+            "entry.1122334455": incluye_latas
         }
-
-        for idx, (cant, lot) in enumerate(latas):
-            payload[f"entry.lata_cantidad_{idx+1}"] = str(cant)
-            payload[f"entry.lata_lote_{idx+1}"] = lot
-
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
             st.success("✅ Registro enviado correctamente")
             st.balloons()
+
+        # Enviar despacho de latas a formulario separado
+        if incluye_latas == "Sí" and len(latas) > 0:
+            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSfLatasFormularioEspecial/formResponse"  # ← reemplazar con el URL real
+            for idx, (cant, lot) in enumerate(latas):
+                payload_latas = {
+                    "entry.1000000000": str(cant),  # ← reemplazar con entry real para cantidad
+                    "entry.1000000001": lot,        # ← reemplazar con entry real para lote
+                    "entry.1000000002": cliente,    # opcional: cliente asociado
+                    "entry.1000000003": responsable  # opcional: responsable
+                }
+                requests.post(form_latas_url, data=payload_latas)
         else:
             st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
 
@@ -181,6 +175,4 @@ if st.button("Agregar Cliente"):
         if response.status_code in [200, 302]:
             st.success("✅ Cliente agregado correctamente")
         else:
-            st.error(f"❌ Error al enviar el cliente. Código: {response.status_code}")
-    else:
-        st.warning("⚠️ El nombre del cliente no puede estar vacío")
+            st.error(f"❌ Error al agregar cliente. Código: {response.status_code}")
