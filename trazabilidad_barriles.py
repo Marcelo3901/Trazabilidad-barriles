@@ -201,19 +201,19 @@ estilo_lata_cf = st.selectbox("Estilo de las latas", estilos, key="estilo_cf")
 cantidad_lata_cf = st.number_input("Cantidad de latas", min_value=1, key="cantidad_cf")
 lote_lata_cf = st.text_input("Lote", key="lote_cf")
 if st.button("Guardar Ingreso de Latas al Cuarto Frío"):
-    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLSel1h5A4u9f4IwDRtiRKHRLgpqMIYQ29zFv7ChpjybZiV1j4g/viewform"
+    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLScjB-YdsbVHZ1QoUhwMvccCMwrU8p5LFpNO4SzA1HZ3UdOtkQ/formResponse"
     payload_cf = {
-        "entry.123456789": cantidad_lata_cf,
-        "entry.987654321": estilo_lata_cf,
-        "entry.192837465": lote_lata_cf,
+        "entry.1482364125": cantidad_lata_cf,
+        "entry.1835972875": estilo_lata_cf,
+        "entry.1000486025": lote_lata_cf,
         "entry.492715468": responsable
     }
     response = requests.post(form_cf_url, data=payload_cf)
     if response.status_code in [200, 302]:
-        st.success("✅ Registro de ingreso al cuarto frío enviado correctamente")
+        st.success("✅ Ingreso al cuarto frío registrado correctamente")
+        st.balloons()
     else:
-        st.error(f"❌ Error al enviar el registro. Código: {response.status_code}")
-
+        st.error(f"❌ Error al registrar ingreso. Código: {response.status_code}")
 
 # BUSCAR REGISTROS
 # ----------------------------------------
