@@ -202,14 +202,19 @@ cantidad_lata_cf = st.number_input("Cantidad de latas", min_value=1, key="cantid
 lote_lata_cf = st.text_input("Lote", key="lote_cf")
 
 if st.button("Guardar Ingreso de Latas al Cuarto Frío"):
-    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLScWQqIe6atpchC8I4nxFRxzLa17AgQfA4v1v86Gtz_3nYg60Q/viewform?usp=header"
+    # ✅ URL CORRECTA para enviar POST
+    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLScWQqIe6atpchC8I4nxFRxzLa17AgQfA4v1v86Gtz_3nYg60Q/formResponse"
+
+    # ✅ Asegúrate que estos entry IDs SON LOS CORRECTOS
     payload_cf = {
         "entry.1771049143": estilo_lata_cf,
         "entry.251410382": str(cantidad_lata_cf),
         "entry.122481390": lote_lata_cf,
         "entry.268194084": responsable
     }
+
     response = requests.post(form_cf_url, data=payload_cf)
+
     if response.status_code in [200, 302]:
         st.success("✅ Ingreso de latas al cuarto frío guardado correctamente")
         st.balloons()
