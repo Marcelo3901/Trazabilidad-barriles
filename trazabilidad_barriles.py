@@ -111,7 +111,7 @@ if estado_barril == "Despacho":
             lote = st.text_input(f"Lote (orden {i+1})", key=f"lote_lata_{i}")
             latas.append((cantidad, lote))
 
-        if st.button("➕ Agregar otra lata"):
+        if st.button("➕ Agregar otro lote de lata"):
             st.session_state.num_latas += 1
 
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
