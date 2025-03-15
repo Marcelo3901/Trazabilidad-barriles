@@ -76,6 +76,8 @@ try:
     url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
     df_clientes = pd.read_csv(url_clientes)
     df_clientes.columns = df_clientes.columns.str.strip()
+    df_clientes.dropna(subset=["Nombre"], inplace=True)
+    df_clientes = df_clientes[df_clientes["Nombre"].str.strip() != ""]
     lista_clientes = df_clientes["Nombre"].dropna().astype(str).tolist()
     dict_direcciones = df_clientes.set_index("Nombre")["Dirección"].to_dict()
 except Exception as e:
@@ -118,38 +120,35 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 if st.button("Guardar Registro"):
-    if incluye_latas == "No":
-        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-        payload = {
-            "entry.311770370": codigo_barril,
-            "entry.1283669263": estilo_cerveza,
-            "entry.1545499818": estado_barril,
-            "entry.91059345": cliente,
-            "entry.1661747572": responsable,
-            "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
-            "entry.1122334455": incluye_latas
-        }
-        response = requests.post(form_url, data=payload)
-        if response.status_code in [200, 302]:
-            st.success("✅ Registro enviado correctamente")
-            st.balloons()
-        else:
-            st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
-
-    if incluye_latas == "Sí" and len(latas) > 0:
-        form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-        for idx, (cant, lot) in enumerate(latas):
-            payload_latas = {
-                "entry.457965266": str(cant),
-                "entry.689047838": estilo_cerveza,
-                "entry.2096096606": lot,
-                "entry.1478892985": cliente,
-                "entry.1774006398": responsable
-            }
-            requests.post(form_latas_url, data=payload_latas)
-        st.success("✅ Despacho de latas registrado correctamente")
+    form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+    payload = {
+        "entry.311770370": codigo_barril,
+        "entry.1283669263": estilo_cerveza,
+        "entry.1545499818": estado_barril,
+        "entry.91059345": cliente,
+        "entry.1661747572": responsable,
+        "entry.1465957833": observaciones,
+        "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
+        "entry.1122334455": incluye_latas
+    }
+    response = requests.post(form_url, data=payload)
+    if response.status_code in [200, 302]:
+        st.success("✅ Registro enviado correctamente")
         st.balloons()
+
+        if incluye_latas == "Sí" and len(latas) > 0:
+            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+            for idx, (cant, lot) in enumerate(latas):
+                payload_latas = {
+                    "entry.457965266": str(cant),
+                    "entry.689047838": estilo_cerveza,
+                    "entry.2096096606": lot,
+                    "entry.1478892985": cliente,
+                    "entry.1774006398": responsable
+                }
+                requests.post(form_latas_url, data=payload_latas)
+    else:
+        st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
