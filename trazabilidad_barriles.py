@@ -223,3 +223,19 @@ try:
 
 except Exception as e:
     st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
+
+# FORMULARIO PARA INGRESAR LATAS AL CUARTO FRÍO
+st.markdown("---")
+st.markdown("<h2 style='color:#fff3aa;'>🧃 Ingreso de Latas al Cuarto Frío</h2>", unsafe_allow_html=True)
+estilo_lata_cf = st.selectbox("Estilo de las latas", estilos, key="estilo_cf")
+cantidad_lata_cf = st.number_input("Cantidad de latas", min_value=1, key="cantidad_cf")
+lote_lata_cf = st.text_input("Lote", key="lote_cf")
+if st.button("Guardar Ingreso de Latas al Cuarto Frío"):
+    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLSel1h5A4u9f4IwDRtiRKHRLgpqMIYQ29zFv7ChpjybZiV1j4g/viewform?usp=sharing"  # ← Reemplazar con el formulario real
+    payload_cf = {
+        "entry.1835972875": estilo_lata_cf,
+        "entry.1482364125": str(cantidad_lata_cf),
+        "entry.entry.1000486025": lote_lata_cf
+    }
+    requests.post(form_cf_url, data=payload_cf)
+    st.success("✅ Latas registradas en el cuarto frío correctamente")
