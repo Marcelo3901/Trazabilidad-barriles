@@ -129,7 +129,7 @@ if st.button("Guardar Registro"):
             "entry.1283669263": estilo_cerveza,
             "entry.1545499818": estado_barril,
             "entry.91059345": cliente,
-            "entry.1437332932": lote,            
+            "entry.1437332932": lot,            
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
             "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
