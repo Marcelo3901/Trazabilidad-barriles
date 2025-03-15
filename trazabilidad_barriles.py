@@ -139,6 +139,17 @@ if st.button("Guardar Registro"):
             "entry.9876543210": incluye_latas,
             "entry.4455667788": str(cantidad_barriles) if estado_barril == "Despacho" else "",
             "entry.5566778899": lote_general if estado_barril == "Despacho" else ""
+            
+            # Enviar datos de despacho de latas si corresponde
+            if estado == "Despacho" and mostrar_latas and latas_tipo and latas_cantidad:
+                form_url_latas = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+                payload_latas = {
+                    "entry.689047838": estilo,
+                    "entry.457965266": latas_cantidad,
+                    "entry.2096096606": latas_lote,
+                    "entry.1478892985": cliente,
+                    "entry.1774006398": responsable
+                }
         }
 
         for idx, (cant, lot) in enumerate(latas):
