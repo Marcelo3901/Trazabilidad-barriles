@@ -59,17 +59,13 @@ st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>",
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 codigo_barril = ""
-codigo_valido = False
 lote_producto = ""
-lote_valido = False
 
 if estado_barril in ["Despacho", "En cuarto frío", "Lavado en bodega", "Sucio"]:
     codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
-    codigo_valido = codigo_barril.isdigit() and len(codigo_barril) == 5 and codigo_barril[:2] in ["20", "30", "58"]
 
 if estado_barril in ["Despacho", "En cuarto frío"]:
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-    lote_valido = lote_producto.isdigit() and len(lote_producto) == 9
 
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
@@ -122,40 +118,34 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 if st.button("Guardar Registro"):
-    if estado_barril in ["Lavado en bodega", "Sucio"] and not codigo_valido:
-        st.warning("⚠️ Código inválido. Debe tener 5 dígitos y comenzar por 20, 30 o 58.")
-    elif estado_barril in ["Despacho", "En cuarto frío"] and (not codigo_valido or not lote_valido):
-        st.warning("⚠️ Código o lote inválido. El código debe tener 5 dígitos y el lote 9 dígitos.")
-    else:
-        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-        payload = {
-            "entry.311770370": codigo_barril,
-            "entry.1283669263": estilo_cerveza,
-            "entry.1545499818": estado_barril,
-            "entry.91059345": cliente,
-            "entry.1661747572": responsable,
-            "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
-            "entry.1122334455": incluye_latas
-        }
-        response = requests.post(form_url, data=payload)
-        if response.status_code in [200, 302]:
-            st.success("✅ Registro enviado correctamente")
-            st.balloons()
+    form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+    payload = {
+        "entry.311770370": codigo_barril,
+        "entry.1283669263": estilo_cerveza,
+        "entry.1545499818": estado_barril,
+        "entry.91059345": cliente,
+        "entry.1661747572": responsable,
+        "entry.1465957833": observaciones,
+        "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
+        "entry.1122334455": incluye_latas
+    }
+    response = requests.post(form_url, data=payload)
+    if response.status_code in [200, 302]:
+        st.success("✅ Registro enviado correctamente")
+        st.balloons()
 
-        # Enviar despacho de latas a formulario separado
         if incluye_latas == "Sí" and len(latas) > 0:
-            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSfLatasFormularioEspecial/formResponse"  # ← reemplazar con el URL real
+            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSfLatasFormularioEspecial/formResponse"
             for idx, (cant, lot) in enumerate(latas):
                 payload_latas = {
-                    "entry.1000000000": str(cant),  # ← reemplazar con entry real para cantidad
-                    "entry.1000000001": lot,        # ← reemplazar con entry real para lote
-                    "entry.1000000002": cliente,    # opcional: cliente asociado
-                    "entry.1000000003": responsable  # opcional: responsable
+                    "entry.1000000000": str(cant),
+                    "entry.1000000001": lot,
+                    "entry.1000000002": cliente,
+                    "entry.1000000003": responsable
                 }
                 requests.post(form_latas_url, data=payload_latas)
-        else:
-            st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
+    else:
+        st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
