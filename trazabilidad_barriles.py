@@ -196,23 +196,25 @@ except Exception as e:
 
 # FORMULARIO PARA INGRESAR LATAS AL CUARTO FRÍO
 st.markdown("---")
-st.markdown("<h2 style='color:#fff3aa;'>🧃 Ingreso de Latas al Cuarto Frío</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='color:#fff3aa;'>➕ Ingreso de Latas al Cuarto Frío</h2>", unsafe_allow_html=True)
 estilo_lata_cf = st.selectbox("Estilo de las latas", estilos, key="estilo_cf")
 cantidad_lata_cf = st.number_input("Cantidad de latas", min_value=1, key="cantidad_cf")
 lote_lata_cf = st.text_input("Lote", key="lote_cf")
 if st.button("Guardar Ingreso de Latas al Cuarto Frío"):
-    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLSfEZ0Tf8ld54mZ8KkmS9Df2YuB-KU7YmcvpQeEqopiznCgeiw/formResponse"
+    form_cf_url = "https://docs.google.com/forms/d/e/1FAIpQLSctuOqOEF27wGVZJgkR1ayPcs5dk51LihxYXzzyLt2J-PGoWg/formResponse"
     payload_cf = {
-        "entry.789456123": estilo_lata_cf,
-        "entry.147258369": cantidad_lata_cf,
-        "entry.321654987": lote_lata_cf,
-        "entry.963852741": responsable
+        "entry.457965266": str(cantidad_lata_cf),
+        "entry.689047838": estilo_lata_cf,
+        "entry.2096096606": lote_lata_cf,
+        "entry.1774006398": responsable
     }
     response = requests.post(form_cf_url, data=payload_cf)
     if response.status_code in [200, 302]:
-        st.success("✅ Ingreso al cuarto frío registrado correctamente")
+        st.success("✅ Ingreso de latas al cuarto frío registrado correctamente")
+        st.balloons()
     else:
-        st.error(f"❌ Error al guardar el ingreso. Código: {response.status_code}")
+        st.error(f"❌ Error al registrar ingreso. Código: {response.status_code}")
+
 # BUSCAR REGISTROS
 # ----------------------------------------
 st.markdown("---")
