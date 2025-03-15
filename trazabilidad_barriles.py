@@ -54,7 +54,7 @@ if os.path.exists("background.jpg"):
 st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles - Castiza</h1>", unsafe_allow_html=True)
 
 # FORMULARIO DE REGISTRO DE BARRILES
-st.markdown("<h2 style='color:#fff3aa;'>📋 Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
@@ -99,7 +99,7 @@ if estado_barril == "Despacho":
     incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
         st.markdown("""
-        <h4 style='color:#fff3aa;'>🧃 Despacho Latas</h4>
+        <h4 style='color:#fff3aa;'>🚚 Despacho Latas</h4>
         """, unsafe_allow_html=True)
 
         if "num_latas" not in st.session_state:
@@ -196,7 +196,7 @@ except Exception as e:
 
 # FORMULARIO PARA INGRESAR LATAS AL CUARTO FRÍO
 st.markdown("---")
-st.markdown("<h2 style='color:#fff3aa;'>🧃 Ingreso de Latas al Cuarto Frío</h2>", unsafe_allow_html=True)
+st.markdown("<h2 style='color:#fff3aa;'>❄️ Ingreso de Latas al Cuarto Frío</h2>", unsafe_allow_html=True)
 estilo_lata_cf = st.selectbox("Estilo de las latas", estilos, key="estilo_cf")
 cantidad_lata_cf = st.number_input("Cantidad de latas", min_value=1, key="cantidad_cf")
 lote_lata_cf = st.text_input("Lote", key="lote_cf")
