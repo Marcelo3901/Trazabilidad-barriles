@@ -128,6 +128,7 @@ if st.button("Guardar Registro"):
             "entry.311770370": codigo_barril,
             "entry.1283669263": estilo_cerveza,
             "entry.1545499818": estado_barril,
+            "entry.472714182": lote,
             "entry.91059345": cliente,
             "entry.1661747572": responsable,
             "entry.1465957833": observaciones,
