@@ -120,39 +120,40 @@ responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
 if st.button("Guardar Registro"):
-    if not codigo_barril.strip():
-        st.warning("⚠️ Debes ingresar un código de barril antes de enviar el formulario.")
+    if incluye_latas == "Sí" and len(latas) > 0:
+        form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+        for idx, (cant, lot) in enumerate(latas):
+            payload_latas = {
+                "entry.457965266": str(cant),
+                "entry.689047838": estilo_cerveza,
+                "entry.2096096606": lot,
+                "entry.1478892985": cliente,
+                "entry.1774006398": responsable
+            }
+            requests.post(form_latas_url, data=payload_latas)
+        st.success("✅ Registro de latas enviado correctamente")
+        st.balloons()
     else:
-        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-        payload = {
-            "entry.311770370": codigo_barril,
-            "entry.1283669263": estilo_cerveza,
-            "entry.1545499818": estado_barril,
-            "entry.91059345": cliente,
-            "entry.1661747572": responsable,
-            "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
-            "entry.1122334455": incluye_latas
-        }
-        response = requests.post(form_url, data=payload)
-        if response.status_code in [200, 302]:
-            st.success("✅ Registro enviado correctamente")
-            st.balloons()
-
-            if incluye_latas == "Sí" and len(latas) > 0:
-                form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-                for idx, (cant, lot) in enumerate(latas):
-                    payload_latas = {
-                        "entry.457965266": str(cant),
-                        "entry.689047838": estilo_cerveza,
-                        "entry.2096096606": lot,
-                        "entry.1478892985": cliente,
-                        "entry.1774006398": responsable
-                    }
-                    if codigo_barril.strip():  # Validación adicional por si acaso
-                        requests.post(form_latas_url, data=payload_latas)
+        if not codigo_barril.strip():
+            st.warning("⚠️ Debes ingresar un código de barril antes de enviar el formulario.")
         else:
-            st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
+            form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+            payload = {
+                "entry.311770370": codigo_barril,
+                "entry.1283669263": estilo_cerveza,
+                "entry.1545499818": estado_barril,
+                "entry.91059345": cliente,
+                "entry.1661747572": responsable,
+                "entry.1465957833": observaciones,
+                "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
+                "entry.1122334455": incluye_latas
+            }
+            response = requests.post(form_url, data=payload)
+            if response.status_code in [200, 302]:
+                st.success("✅ Registro enviado correctamente")
+                st.balloons()
+            else:
+                st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
