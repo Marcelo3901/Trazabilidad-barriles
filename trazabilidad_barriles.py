@@ -174,3 +174,31 @@ if st.button("Agregar Cliente"):
             st.success("✅ Cliente agregado correctamente")
         else:
             st.error(f"❌ Error al agregar cliente. Código: {response.status_code}")
+# BUSCAR REGISTROS
+# ----------------------------------------
+st.markdown("---")
+st.markdown("<h2 style='color:#fff3aa;'>🔍 Buscar Barriles</h2>", unsafe_allow_html=True)
+
+try:
+    df_search = pd.read_csv(url_datos)
+    df_search.columns = df_search.columns.str.strip()
+
+    filtro_codigo = st.text_input("🔎 Buscar por código de barril")
+    filtro_cliente = st.text_input("🔎 Buscar por cliente")
+    filtro_estado = st.selectbox("🔎 Buscar por estado", ["", "Despachado", "Lavado en bodega", "Sucio", "En cuarto frío"])
+
+    df_filtrado = df_search.copy()
+    if filtro_codigo:
+        df_filtrado = df_filtrado[df_filtrado["Código"].astype(str).str.contains(filtro_codigo)]
+    if filtro_cliente:
+        df_filtrado = df_filtrado[df_filtrado["Cliente"].astype(str).str.contains(filtro_cliente, case=False)]
+    if filtro_estado:
+        df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
+
+    if not df_filtrado.empty:
+        st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+    else:
+        st.warning("⚠️ No se encontraron registros con los filtros aplicados.")
+
+except Exception as e:
+    st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
