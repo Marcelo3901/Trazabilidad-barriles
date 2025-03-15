@@ -138,10 +138,11 @@ if st.button("Guardar Registro"):
             form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
             for idx, (cant, lot) in enumerate(latas):
                 payload_latas = {
-                    "entry.1000000000": str(cant),
-                    "entry.1000000001": lot,
-                    "entry.1000000002": cliente,
-                    "entry.1000000003": responsable
+                    "entry.457965266": str(cant),
+                    "entry.689047838": estilo_cerveza,
+                    "entry.2096096606": lot,
+                    "entry.1478892985": cliente,
+                    "entry.1774006398": responsable
                 }
                 requests.post(form_latas_url, data=payload_latas)
     else:
