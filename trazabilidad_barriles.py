@@ -96,7 +96,7 @@ if estado_barril == "Despacho" and lista_clientes:
 latas = []
 incluye_latas = "No"
 if estado_barril == "Despacho":
-    incluye_latas = st.selectbox("¿Incluye despacho de latas?", ["No", "Sí"])
+    incluye_latas = st.selectbox("¿🚚🚚Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
         st.markdown("""
         <h4 style='color:#fff3aa;'>🚚 Despacho Latas</h4>
