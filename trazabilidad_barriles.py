@@ -69,11 +69,9 @@ st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
 # ---------- INGRESO CÓDIGO DEL BARRIL ----------
-estado_barril = st.selectbox("Selecciona el estado del barril", ["", "En cuarto frío", "Despacho", "Sucio", "Lavado en bodega"])
 codigo_barril = ""
-
 if estado_barril:
-    codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
+    codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)", value="").strip()
 
 # ---------- INGRESO DE LOTE Y ESTILO SI ESTÁ EN CUARTO FRÍO ----------
 lote_producto = ""
@@ -85,35 +83,53 @@ if estado_barril == "En cuarto frío":
                "Barley Wine", "Trigo", "Catharina Sour", "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
     estilo_cerveza = st.selectbox("Estilo", estilos)
 
-# ---------- AUTOCOMPLETAR LOTE Y ESTILO SI EL ESTADO ES DESPACHO ----------
+# ---------- AUTOCOMPLETAR LOTE Y ESTILO + CONTROL DE CICLO SI EL ESTADO ES DESPACHO ----------
 if estado_barril == "Despacho" and codigo_barril:
     try:
-        url_registros = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
-        df_registros = pd.read_csv(url_registros)
-        df_registros.columns = df_registros.columns.str.strip()
+        url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
+        df_datos = pd.read_csv(url_datos)
 
-        # Asegurar que la columna 'Código' esté en formato string sin decimales
-        df_registros['Código'] = df_registros['Código'].astype(str).str.replace('.0', '', regex=False)
-        df_registros['Estado'] = df_registros['Estado'].astype(str).str.strip()
+        # Limpieza de columnas
+        df_datos.columns = df_datos.columns.str.strip()
 
-        # Formatear el código ingresado también como string sin decimales
-        codigo_barril_str = str(codigo_barril).replace('.0', '')
+        # Convertir 'Código' a string sin decimales (eliminar .0)
+        if "Código" in df_datos.columns:
+            df_datos["Código"] = df_datos["Código"].apply(lambda x: str(int(float(x))) if pd.notnull(x) else "").str.strip()
 
-        # Buscar el último registro en "En cuarto frío" para ese código
-        df_barril = df_registros[(df_registros["Código"] == codigo_barril_str) & (df_registros["Estado"] == "En cuarto frío")]
+        # Asegurarse de que Estado también esté limpio
+        if "Estado" in df_datos.columns:
+            df_datos["Estado"] = df_datos["Estado"].astype(str).str.strip()
 
-        if not df_barril.empty:
-            ultimo_registro = df_barril.iloc[-1]
-            lote_producto = ultimo_registro.get("Lote", "")
-            estilo_cerveza = ultimo_registro.get("Estilo", "")
-            st.success(f"Lote asignado automáticamente: {lote_producto}")
-            st.success(f"Estilo asignado automáticamente: {estilo_cerveza}")
+        # ➕ Validar si el último estado de ese barril fue "Despacho"
+        historial_barril = df_datos[df_datos["Código"] == codigo_barril]
+        if not historial_barril.empty:
+            ultimo_estado = historial_barril.iloc[-1]["Estado"]
+
+            if ultimo_estado == "Despacho":
+                st.error("🚫 Este barril ya fue despachado previamente. Debe pasar primero por 'Lavado en bodega' antes de volver a despacharse.")
+            else:
+                # Autocompletar Lote y Estilo si hay registros previos en "En cuarto frío"
+                df_cuarto_frio = historial_barril[historial_barril["Estado"] == "En cuarto frío"]
+                if not df_cuarto_frio.empty:
+                    ultimo_cf = df_cuarto_frio.iloc[-1]
+                    lote_producto = ultimo_cf.get("Lote", "No disponible")
+                    estilo_cerveza = ultimo_cf.get("Estilo", "No disponible")
+                    st.success(f"✅ Lote asignado automáticamente: {lote_producto}")
+                    st.success(f"✅ Estilo asignado automáticamente: {estilo_cerveza}")
+                else:
+                    st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. Se asignó 'No disponible'.")
+                    lote_producto = "No disponible"
+                    estilo_cerveza = "No disponible"
         else:
-            st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
+            st.warning("⚠️ Este barril no tiene historial previo. Se permitirá el despacho inicial.")
+            lote_producto = "No disponible"
+            estilo_cerveza = "No disponible"
+
     except Exception as e:
         st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
-        lote_producto = ""
-        estilo_cerveza = ""
+        lote_producto = "No disponible"
+        estilo_cerveza = "No disponible"
+
 
 # ---------- AJUSTE: CAMBIAR ESTADO A 'Vacío' si se selecciona 'Sucio' o 'Lavado en bodega' ----------
 estado_para_guardar = estado_barril
