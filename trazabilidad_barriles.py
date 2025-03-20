@@ -369,10 +369,8 @@ if st.button("Registrar devolución"):
 
     elif tipo_devolucion == "Latas":
         try:
-            # ✅ URL del formulario de Google Forms para latas
             url_form_latas = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
 
-            # 📤 Datos a enviar (entry.xxx deben coincidir con tu formulario de latas)
             form_data_latas = {
                 "entry.457965266": str(cantidad_latas),     # Cantidad de latas
                 "entry.689047838": estilo_cerveza,          # Estilo
@@ -382,9 +380,9 @@ if st.button("Registrar devolución"):
             }
 
             response = requests.post(url_form_latas, data=form_data_latas)
-
             if response.status_code in [200, 302]:
                 st.success("✅ Devolución de latas registrada correctamente.")
+                st.toast("🍺 Devolución registrada")
             else:
                 st.warning(f"⚠️ Error al enviar devolución. Código: {response.status_code}")
         except Exception as e:
