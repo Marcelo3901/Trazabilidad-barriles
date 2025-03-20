@@ -87,19 +87,20 @@ if estado_barril == "En cuarto frío":
 # ---------- AUTOCOMPLETAR LOTE Y ESTILO SI EL ESTADO ES DESPACHO ----------
 if estado_barril == "Despacho" and codigo_barril:
     try:
-        url_registros = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Registros"
-        df_registros = pd.read_csv(url_registros)
+        # CAMBIO CLAVE: ahora se lee la hoja DatosM (no Registros)
+        url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
+        df_datos = pd.read_csv(url_datos)
 
         # Limpiar nombres de columnas
-        df_registros.columns = df_registros.columns.str.strip()
+        df_datos.columns = df_datos.columns.str.strip()
 
         # Mostrar columnas disponibles para depuración (puedes comentar esto después)
-        st.write("🧩 Columnas detectadas en hoja Registros:", df_registros.columns.tolist())
+        st.write("🧩 Columnas detectadas en hoja DatosM:", df_datos.columns.tolist())
 
-        if "Código" in df_registros.columns and "Estado" in df_registros.columns:
+        if "Código" in df_datos.columns and "Estado" in df_datos.columns:
             # Filtrar registros anteriores del mismo barril en estado "En cuarto frío"
-            df_barril = df_registros[
-                (df_registros["Código"] == codigo_barril) & (df_registros["Estado"] == "En cuarto frío")
+            df_barril = df_datos[
+                (df_datos["Código"] == codigo_barril) & (df_datos["Estado"] == "En cuarto frío")
             ]
 
             if not df_barril.empty:
@@ -111,8 +112,8 @@ if estado_barril == "Despacho" and codigo_barril:
             else:
                 st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
         else:
-            st.warning("⚠️ La hoja de registros no contiene las columnas necesarias: 'Código' y 'Estado'. Revisa el archivo.")
-            st.write("📝 Encabezados detectados:", df_registros.columns.tolist())
+            st.warning("⚠️ La hoja 'DatosM' no contiene las columnas necesarias: 'Código' y 'Estado'. Revisa los encabezados.")
+            st.write("📝 Encabezados detectados:", df_datos.columns.tolist())
 
     except Exception as e:
         st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
