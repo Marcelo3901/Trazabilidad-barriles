@@ -5,6 +5,10 @@ from urllib.parse import urlencode
 import base64
 import os
 
+st.set_page_config(page_title="Registro de Devoluciones", page_icon="📦")
+
+st.title("📦 Registro de Devoluciones de Barriles y Latas")
+
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
 
