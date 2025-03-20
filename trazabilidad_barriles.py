@@ -319,74 +319,72 @@ try:
 except Exception as e:
     st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
 
-# ------------------ CONFIGURACIÓN GOOGLE SHEETS (solo para barriles) ------------------
-scope = ["https://spreadsheets.google.com/feeds", "https://www.googleapis.com/auth/drive"]
-creds = ServiceAccountCredentials.from_json_keyfile_name("credentials.json", scope)
-client = gspread.authorize(creds)
-spreadsheet = client.open_by_key("1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY")
+st.set_page_config(page_title="Registro de Devoluciones", page_icon="📦")
+st.title("📦 Registro de Devoluciones de Barriles y Latas")
 
-# ------------------ FORMULARIO DE DEVOLUCIONES ------------------
-st.subheader("📦 Registro de Devoluciones")
+# ------------------ FORMULARIO GENERAL ------------------
+tipo_devolucion = st.selectbox("Selecciona tipo de devolución:", ["", "Barril", "Latas"])
 
-tipo_devolucion = st.selectbox("Tipo de devolución", ["", "Barril", "Latas"])
-
-# ------------------ CAMPOS COMUNES ------------------
-cliente_dev = st.text_input("Cliente que devuelve")
-responsable_dev = st.text_input("Responsable de recepción")
-observaciones_dev = st.text_area("Observaciones")
-fecha_dev = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
+cliente = st.text_input("Cliente que devuelve")
+responsable = st.text_input("Responsable que recibe")
+observaciones = st.text_area("Observaciones (opcional)")
+fecha_actual = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 
 # ------------------ CAMPOS ESPECÍFICOS ------------------
 if tipo_devolucion == "Barril":
-    codigo_barril_dev = st.text_input("Código del barril devuelto")
+    codigo_barril = st.text_input("Código del barril")
     estilo_cerveza = st.text_input("Estilo de cerveza (opcional)")
-    lote_producto = st.text_input("Lote de producto (opcional)")
+    lote_producto = st.text_input("Lote del producto (opcional)")
     incluye_latas = st.radio("¿Incluye latas?", ["Sí", "No"])
 
 elif tipo_devolucion == "Latas":
-    cant_latas = st.number_input("Cantidad de latas devueltas", min_value=1, step=1)
+    cantidad_latas = st.number_input("Cantidad de latas devueltas", min_value=1, step=1)
     estilo_cerveza = st.text_input("Estilo de cerveza")
-    lote_producto = st.text_input("Lote de producto")
+    lote_latas = st.text_input("Lote de producto")
 
-# ------------------ BOTÓN PARA GUARDAR ------------------
-if st.button("Guardar devolución"):
+# ------------------ BOTÓN DE ENVÍO ------------------
+if st.button("Registrar devolución"):
 
     if tipo_devolucion == "Barril":
         try:
-            hoja_datosm = spreadsheet.worksheet("DatosM")
-            hoja_datosm.append_row([
-                fecha_dev,
-                codigo_barril_dev,
-                "Vacio",  # Estado automático para devolución
-                lote_producto,
-                estilo_cerveza,
-                cliente_dev,
-                responsable_dev,
-                observaciones_dev,
-                incluye_latas
-            ])
-            st.success("✅ Devolución de barril registrada correctamente en hoja DatosM.")
+            url_form_barril = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+
+            form_data_barril = {
+                "entry.311770370": codigo_barril,                       # Código del barril
+                "entry.1283669263": estilo_cerveza,                    # Estilo
+                "entry.1545499818": "Vacio",                           # Estado automático al devolver
+                "entry.91059345": cliente,                             # Cliente
+                "entry.1661747572": responsable,                       # Responsable
+                "entry.1465957833": observaciones,                     # Observaciones
+                "entry.1234567890": lote_producto,                     # Lote (opcional)
+                "entry.1122334455": incluye_latas,                     # Incluye latas
+                "entry.1437332932": lote_producto                      # Lote repetido si se requiere
+            }
+
+            response = requests.post(url_form_barril, data=form_data_barril)
+            if response.status_code in [200, 302]:
+                st.success("✅ Devolución de barril registrada correctamente.")
+            else:
+                st.warning(f"⚠️ Error al enviar devolución. Código: {response.status_code}")
         except Exception as e:
-            st.warning(f"⚠️ Error al registrar devolución de barril: {e}")
+            st.error(f"❌ Error al registrar devolución de barril: {e}")
 
     elif tipo_devolucion == "Latas":
         try:
-            # URL del formulario
-            form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+            url_form_latas = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
 
-            # Datos a enviar al formulario (entry.X)
-            form_data = {
-                "entry.457965266": str(cant_latas),            # Cantidad
-                "entry.689047838": estilo_cerveza,             # Estilo
-                "entry.2096096606": lote_producto,             # Lote
-                "entry.1478892985": cliente_dev,               # Cliente
-                "entry.1774006398": responsable_dev            # Responsable
+            form_data_latas = {
+                "entry.457965266": str(cantidad_latas),               # Cantidad
+                "entry.689047838": estilo_cerveza,                    # Estilo
+                "entry.2096096606": lote_latas,                       # Lote
+                "entry.1478892985": cliente,                          # Cliente
+                "entry.1774006398": responsable                       # Responsable
             }
 
-            response = requests.post(form_url, data=form_data)
+            response = requests.post(url_form_latas, data=form_data_latas)
             if response.status_code in [200, 302]:
-                st.success("✅ Devolución de latas registrada correctamente vía Google Forms.")
+                st.success("✅ Devolución de latas registrada correctamente.")
             else:
-                st.warning(f"⚠️ Error al enviar al formulario. Código: {response.status_code}")
+                st.warning(f"⚠️ Error al enviar devolución. Código: {response.status_code}")
         except Exception as e:
-            st.warning(f"⚠️ Error al enviar devolución de latas: {e}")
+            st.error(f"❌ Error al registrar devolución de latas: {e}")
