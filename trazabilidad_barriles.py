@@ -8,7 +8,6 @@ import os
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
-st.set_page_config(page_title="Registro de Devoluciones", page_icon="📦")
 
 # --- Lista de estilos global ---
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
