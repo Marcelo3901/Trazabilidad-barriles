@@ -83,7 +83,7 @@ if estado_barril == "En cuarto frío":
                "Barley Wine", "Trigo", "Catharina Sour", "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
     estilo_cerveza = st.selectbox("Estilo", estilos)
 
-# ---------- AUTOCOMPLETAR LOTE Y ESTILO SI EL ESTADO ES DESPACHO ----------
+# ---------- AUTOCOMPLETAR LOTE Y ESTILO + CONTROL DE CICLO SI EL ESTADO ES DESPACHO ----------
 if estado_barril == "Despacho" and codigo_barril:
     try:
         url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
@@ -100,19 +100,31 @@ if estado_barril == "Despacho" and codigo_barril:
         if "Estado" in df_datos.columns:
             df_datos["Estado"] = df_datos["Estado"].astype(str).str.strip()
 
-        # Buscar coincidencias
-        df_barril = df_datos[(df_datos["Código"] == codigo_barril) & (df_datos["Estado"] == "En cuarto frío")]
+        # ➕ Validar si el último estado de ese barril fue "Despacho"
+        historial_barril = df_datos[df_datos["Código"] == codigo_barril]
+        if not historial_barril.empty:
+            ultimo_estado = historial_barril.iloc[-1]["Estado"]
 
-        if not df_barril.empty:
-            ultimo_registro = df_barril.iloc[-1]
-            lote_producto = ultimo_registro.get("Lote", "No disponible")
-            estilo_cerveza = ultimo_registro.get("Estilo", "No disponible")
-            st.success(f"✅ Lote asignado automáticamente: {lote_producto}")
-            st.success(f"✅ Estilo asignado automáticamente: {estilo_cerveza}")
+            if ultimo_estado == "Despacho":
+                st.error("🚫 Este barril ya fue despachado previamente. Debe pasar primero por 'Lavado en bodega' antes de volver a despacharse.")
+            else:
+                # Autocompletar Lote y Estilo si hay registros previos en "En cuarto frío"
+                df_cuarto_frio = historial_barril[historial_barril["Estado"] == "En cuarto frío"]
+                if not df_cuarto_frio.empty:
+                    ultimo_cf = df_cuarto_frio.iloc[-1]
+                    lote_producto = ultimo_cf.get("Lote", "No disponible")
+                    estilo_cerveza = ultimo_cf.get("Estilo", "No disponible")
+                    st.success(f"✅ Lote asignado automáticamente: {lote_producto}")
+                    st.success(f"✅ Estilo asignado automáticamente: {estilo_cerveza}")
+                else:
+                    st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. Se asignó 'No disponible'.")
+                    lote_producto = "No disponible"
+                    estilo_cerveza = "No disponible"
         else:
+            st.warning("⚠️ Este barril no tiene historial previo. Se permitirá el despacho inicial.")
             lote_producto = "No disponible"
             estilo_cerveza = "No disponible"
-            st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. Se asignó 'No disponible'.")
+
     except Exception as e:
         st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
         lote_producto = "No disponible"
