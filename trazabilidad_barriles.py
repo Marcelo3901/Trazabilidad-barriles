@@ -419,7 +419,6 @@ if st.button("Registrar Baja de Producto"):
                 "entry.311770370": codigo_barril_baja,                      # Código del barril
                 "entry.1283669263": estilo_baja_barril,                    # Estilo
                 "entry.1545499818": "Baja",                                # Estado automático "Baja"
-                "entry.91059345": cliente_baja,                            # Cliente
                 "entry.1661747572": responsable_baja,                      # Responsable
                 "entry.1465957833": observaciones_baja,                    # Observaciones
                 "entry.1234567890": lote_barril_baja,                      # Lote (opcional)
@@ -443,7 +442,6 @@ if st.button("Registrar Baja de Producto"):
                 "entry.457965266": str(cantidad_latas_baja),              # Cantidad
                 "entry.689047838": estilo_latas_baja,                     # Estilo
                 "entry.2096096606": lote_latas_baja,                      # Lote
-                "entry.1478892985": cliente_baja,                         # Cliente
                 "entry.1774006398": responsable_baja,                     # Responsable
                 "entry.1179145668": "Baja"                                # Campo adicional para indicar baja
             }
