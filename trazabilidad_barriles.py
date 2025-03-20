@@ -131,6 +131,12 @@ if estado_barril == "Despacho" and codigo_barril:
         estilo_cerveza = "No disponible"
 
 
+# ---------- AJUSTE: CAMBIAR ESTADO A 'Vacío' si se selecciona 'Sucio' o 'Lavado en bodega' ----------
+estado_para_guardar = estado_barril
+if estado_barril in ["Sucio", "Lavado en bodega"]:
+    estado_para_guardar = "Vacío"
+    st.info("ℹ️ Estado registrado como Vacío para este barril.")
+
 
 # ---------- CARGAR CLIENTES DESDE GOOGLE SHEETS ----------
 try:
