@@ -54,24 +54,60 @@ if os.path.exists("background.jpg"):
 st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles y Latas - Castiza</h1>", unsafe_allow_html=True)
 
 # FORMULARIO DE REGISTRO DE BARRILES
+import streamlit as st
+import pandas as pd
+
+# Título
 st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
+# Estado del barril
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
+# Código del barril
 codigo_barril = ""
-lote_producto = ""
-
 if estado_barril in ["Despacho", "En cuarto frío", "Lavado en bodega", "Sucio"]:
     codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 
-if estado_barril in ["Despacho", "En cuarto frío"]:
+# Inicializamos variables
+lote_producto = ""
+estilo_cerveza = ""
+
+# En CUARTO FRÍO se ingresan manualmente Lote y Estilo
+if estado_barril == "En cuarto frío":
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
+    
+    estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+               "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
+               "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+    estilo_cerveza = st.selectbox("Estilo", estilos)
 
-estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
-           "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
-           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
-estilo_cerveza = st.selectbox("Estilo", estilos)
+# En DESPACHO se busca el último lote y estilo registrados
+if estado_barril == "Despacho" and codigo_barril:
+    try:
+        url_registros = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Registros"
+        df_registros = pd.read_csv(url_registros)
+        df_registros.columns = df_registros.columns.str.strip()
+        
+        # Filtrar registros del mismo barril cuando estuvo "En cuarto frío"
+        df_barril = df_registros[(df_registros["Código"] == codigo_barril) & 
+                                 (df_registros["Estado"] == "En cuarto frío")]
 
+        # Obtener el último registro
+        if not df_barril.empty:
+            ultimo_registro = df_barril.iloc[-1]
+            lote_producto = ultimo_registro.get("Lote", "")
+            estilo_cerveza = ultimo_registro.get("Estilo", "")
+            st.success(f"Lote asignado automáticamente: {lote_producto}")
+            st.success(f"Estilo asignado automáticamente: {estilo_cerveza}")
+        else:
+            st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
+
+    except Exception as e:
+        st.warning(f"No se pudo consultar registros previos: {e}")
+        lote_producto = ""
+        estilo_cerveza = ""
+
+# Cargar lista de clientes
 try:
     url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
     df_clientes = pd.read_csv(url_clientes)
@@ -85,12 +121,31 @@ except Exception as e:
     dict_direcciones = {}
     st.warning(f"No se pudieron cargar los clientes: {e}")
 
+# Cliente y dirección
 cliente = "Planta Castiza"
 direccion_cliente = ""
+
 if estado_barril == "Despacho" and lista_clientes:
     cliente = st.selectbox("Cliente", lista_clientes)
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
+
+# Mostrar resumen (opcional)
+st.markdown("---")
+st.markdown("### 📝 Resumen del Registro")
+st.write(f"- Estado: **{estado_barril}**")
+st.write(f"- Código: **{codigo_barril}**")
+if estado_barril in ["En cuarto frío", "Despacho"]:
+    st.write(f"- Lote: **{lote_producto}**")
+if estado_barril == "En cuarto frío" or (estado_barril == "Despacho" and estilo_cerveza):
+    st.write(f"- Estilo: **{estilo_cerveza}**")
+if estado_barril == "Despacho":
+    st.write(f"- Cliente: **{cliente}**")
+    st.write(f"- Dirección: **{direccion_cliente}**")
+
+# Aquí puedes agregar el botón de "Guardar Registro" con envío a Google Sheets si ya tienes eso configurado
+
+
 
 # DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
 latas = []
