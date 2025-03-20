@@ -402,6 +402,7 @@ fecha_actual_baja = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 if tipo_baja == "Barril":
     codigo_barril_baja = st.text_input("Código del barril a dar de baja")
     estilo_baja_barril = st.text_input("Estilo de cerveza (opcional)")
+    lote_barril_baja = st.text_input("Lote del producto (opcional)")
 
 elif tipo_baja == "Latas":
     cantidad_latas_baja = st.number_input("Cantidad de latas a dar de baja", min_value=1, step=1)
@@ -436,7 +437,7 @@ if st.button("Registrar Baja de Producto"):
 
     elif tipo_baja == "Latas":
         try:
-            url_form_latas_baja = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/viewform?usp=sharing"
+            url_form_latas_baja = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
 
             form_data_baja_latas = {
                 "entry.457965266": str(cantidad_latas_baja),              # Cantidad
@@ -449,7 +450,7 @@ if st.button("Registrar Baja de Producto"):
             response = requests.post(url_form_latas_baja, data=form_data_baja_latas)
             if response.status_code in [200, 302]:
                 st.success("✅ Baja de latas registrada correctamente.")
-                st.balloons()
+                st.snow()
             else:
                 st.warning(f"⚠️ Error al registrar baja. Código: {response.status_code}")
         except Exception as e:
