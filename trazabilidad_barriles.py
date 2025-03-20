@@ -72,7 +72,7 @@ estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega
 # ---------- INGRESO CÓDIGO DEL BARRIL ----------
 codigo_barril = ""
 if estado_barril:
-    codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
+    codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)", value="").strip()
 
 # ---------- INGRESO DE LOTE Y ESTILO SI ESTÁ EN CUARTO FRÍO ----------
 lote_producto = ""
@@ -87,39 +87,42 @@ if estado_barril == "En cuarto frío":
 # ---------- AUTOCOMPLETAR LOTE Y ESTILO SI EL ESTADO ES DESPACHO ----------
 if estado_barril == "Despacho" and codigo_barril:
     try:
-        # CAMBIO CLAVE: ahora se lee la hoja DatosM (no Registros)
         url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
         df_datos = pd.read_csv(url_datos)
 
-        # Limpiar nombres de columnas
+        # Limpieza de columnas y datos
         df_datos.columns = df_datos.columns.str.strip()
+        df_datos = df_datos.applymap(lambda x: str(x).strip() if pd.notnull(x) else "")
 
-        # Mostrar columnas disponibles para depuración (puedes comentar esto después)
-        st.write("🧩 Columnas detectadas en hoja DatosM:", df_datos.columns.tolist())
-
+        # Asegurar que las columnas necesarias existen
         if "Código" in df_datos.columns and "Estado" in df_datos.columns:
-            # Filtrar registros anteriores del mismo barril en estado "En cuarto frío"
+            # Convertir código a texto limpio
+            df_datos["Código"] = df_datos["Código"].astype(str).str.strip()
+            df_datos["Estado"] = df_datos["Estado"].astype(str).str.strip()
+
+            # Mostrar registros con mismo código
             df_barril = df_datos[
                 (df_datos["Código"] == codigo_barril) & (df_datos["Estado"] == "En cuarto frío")
             ]
+
+            st.write("📋 Registros encontrados con ese código en 'En cuarto frío':")
+            st.dataframe(df_barril)
 
             if not df_barril.empty:
                 ultimo_registro = df_barril.iloc[-1]
                 lote_producto = ultimo_registro.get("Lote", "")
                 estilo_cerveza = ultimo_registro.get("Estilo", "")
-                st.success(f"Lote asignado automáticamente: {lote_producto}")
-                st.success(f"Estilo asignado automáticamente: {estilo_cerveza}")
+                st.success(f"✅ Lote asignado automáticamente: {lote_producto}")
+                st.success(f"✅ Estilo asignado automáticamente: {estilo_cerveza}")
             else:
                 st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
         else:
-            st.warning("⚠️ La hoja 'DatosM' no contiene las columnas necesarias: 'Código' y 'Estado'. Revisa los encabezados.")
-            st.write("📝 Encabezados detectados:", df_datos.columns.tolist())
+            st.warning("⚠️ La hoja 'DatosM' no tiene columnas 'Código' o 'Estado'.")
 
     except Exception as e:
         st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
         lote_producto = ""
         estilo_cerveza = ""
-
 
 
 # ---------- CARGAR CLIENTES DESDE GOOGLE SHEETS ----------
