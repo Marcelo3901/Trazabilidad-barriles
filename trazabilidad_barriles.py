@@ -58,32 +58,38 @@ if os.path.exists("background.jpg"):
 # TÍTULO PRINCIPAL
 st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles y Latas - Castiza</h1>", unsafe_allow_html=True)
 
-# FORMULARIO DE REGISTRO DE BARRILES
+import streamlit as st
+import pandas as pd
+import requests
+
+# ---------- TÍTULO ----------
 st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
+# ---------- SELECCIÓN ESTADO DEL BARRIL ----------
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
+# ---------- INGRESO CÓDIGO DEL BARRIL ----------
 codigo_barril = ""
-if estado_barril in ["Despacho", "En cuarto frío", "Lavado en bodega", "Sucio"]:
+if estado_barril:
     codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 
+# ---------- INGRESO DE LOTE Y ESTILO SI ESTÁ EN CUARTO FRÍO ----------
 lote_producto = ""
 estilo_cerveza = ""
 
 if estado_barril == "En cuarto frío":
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-    estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
-               "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
-               "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+    estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout", "Session IPA", "IPA", "Maracuyá",
+               "Barley Wine", "Trigo", "Catharina Sour", "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
     estilo_cerveza = st.selectbox("Estilo", estilos)
 
+# ---------- AUTOCOMPLETAR LOTE Y ESTILO SI EL ESTADO ES DESPACHO ----------
 if estado_barril == "Despacho" and codigo_barril:
     try:
         url_registros = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Registros"
         df_registros = pd.read_csv(url_registros)
         df_registros.columns = df_registros.columns.str.strip()
-        df_barril = df_registros[(df_registros["Código"] == codigo_barril) & 
-                                 (df_registros["Estado"] == "En cuarto frío")]
+        df_barril = df_registros[(df_registros["Código"] == codigo_barril) & (df_registros["Estado"] == "En cuarto frío")]
 
         if not df_barril.empty:
             ultimo_registro = df_barril.iloc[-1]
@@ -94,10 +100,11 @@ if estado_barril == "Despacho" and codigo_barril:
         else:
             st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
     except Exception as e:
-        st.warning(f"No se pudo consultar registros previos: {e}")
+        st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
         lote_producto = ""
         estilo_cerveza = ""
 
+# ---------- CARGAR CLIENTES DESDE GOOGLE SHEETS ----------
 try:
     url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
     df_clientes = pd.read_csv(url_clientes)
@@ -109,22 +116,24 @@ try:
 except Exception as e:
     lista_clientes = []
     dict_direcciones = {}
-    st.warning(f"No se pudieron cargar los clientes: {e}")
+    st.warning(f"⚠️ No se pudieron cargar los clientes: {e}")
 
+# ---------- SELECCIÓN DE CLIENTE Y AUTOCOMPLETADO DE DIRECCIÓN ----------
 cliente = "Planta Castiza"
 direccion_cliente = ""
-
 if estado_barril == "Despacho" and lista_clientes:
     cliente = st.selectbox("Cliente", lista_clientes)
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
+# ---------- DESPACHO DE LATAS (DINÁMICO) ----------
 latas = []
 incluye_latas = "No"
+
 if estado_barril == "Despacho":
-    incluye_latas = st.selectbox("¿🚚🚚Incluye despacho de latas?", ["No", "Sí"])
+    incluye_latas = st.selectbox("¿🚚 Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
-        st.markdown("<h4 style='color:#fff3aa;'>🚚 Despacho Latas</h4>", unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#fff3aa;'>🚚 Detalles de despacho de latas</h4>", unsafe_allow_html=True)
 
         if "num_latas" not in st.session_state:
             st.session_state.num_latas = 1
@@ -132,21 +141,23 @@ if estado_barril == "Despacho":
         for i in range(st.session_state.num_latas):
             st.markdown(f"**[ORDEN {i+1}]**")
             cantidad = st.number_input(f"Cantidad (Orden {i+1})", min_value=1, key=f"cantidad_lata_{i}")
-            lote = st.text_input(f"Lote (orden {i+1})", key=f"lote_lata_{i}")
+            lote = st.text_input(f"Lote (Orden {i+1})", key=f"lote_lata_{i}")
             latas.append((cantidad, lote))
 
         if st.button("➕ Agregar lata diferente lote"):
             st.session_state.num_latas += 1
 
+# ---------- RESPONSABLE Y OBSERVACIONES ----------
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
 responsable = st.selectbox("Responsable", responsables)
-
 observaciones = st.text_area("Observaciones")
 
+# ---------- GUARDAR FORMULARIO ----------
 if st.button("Guardar Registro"):
     if not codigo_barril.strip():
         st.warning("⚠️ Debes ingresar un código de barril antes de enviar el formulario.")
     else:
+        # Enviar formulario principal
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
         payload = {
             "entry.311770370": codigo_barril,
@@ -166,19 +177,21 @@ if st.button("Guardar Registro"):
         else:
             st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
 
-    if incluye_latas == "Sí" and len(latas) > 0:
-        form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-        for idx, (cant, lot) in enumerate(latas):
-            payload_latas = {
-                "entry.457965266": str(cant),
-                "entry.689047838": estilo_cerveza,
-                "entry.2096096606": lot,
-                "entry.1478892985": cliente,
-                "entry.1774006398": responsable
-            }
-            response_latas = requests.post(form_latas_url, data=payload_latas)
-            if response_latas.status_code not in [200, 302]:
-                st.warning(f"❌ Error al enviar lata {idx+1}. Código: {response_latas.status_code}")
+        # Enviar formulario de latas (si corresponde)
+        if incluye_latas == "Sí" and latas:
+            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+            for idx, (cant, lot) in enumerate(latas):
+                payload_latas = {
+                    "entry.457965266": str(cant),
+                    "entry.689047838": estilo_cerveza,
+                    "entry.2096096606": lot,
+                    "entry.1478892985": cliente,
+                    "entry.1774006398": responsable
+                }
+                r_latas = requests.post(form_latas_url, data=payload_latas)
+                if r_latas.status_code not in [200, 302]:
+                    st.warning(f"❌ Error al enviar lata {idx+1}. Código: {r_latas.status_code}")
+
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
 st.markdown("<h2 style='color:#fff3aa;'>➕ Registrar Nuevo Cliente</h2>", unsafe_allow_html=True)
