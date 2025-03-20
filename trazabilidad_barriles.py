@@ -54,43 +54,32 @@ if os.path.exists("background.jpg"):
 st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles y Latas - Castiza</h1>", unsafe_allow_html=True)
 
 # FORMULARIO DE REGISTRO DE BARRILES
-
-# Título
 st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
-# Estado del barril
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
-# Código del barril
 codigo_barril = ""
 if estado_barril in ["Despacho", "En cuarto frío", "Lavado en bodega", "Sucio"]:
     codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)")
 
-# Inicializamos variables
 lote_producto = ""
 estilo_cerveza = ""
 
-# En CUARTO FRÍO se ingresan manualmente Lote y Estilo
 if estado_barril == "En cuarto frío":
     lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-    
     estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
                "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
                "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
     estilo_cerveza = st.selectbox("Estilo", estilos)
 
-# En DESPACHO se busca el último lote y estilo registrados
 if estado_barril == "Despacho" and codigo_barril:
     try:
         url_registros = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Registros"
         df_registros = pd.read_csv(url_registros)
         df_registros.columns = df_registros.columns.str.strip()
-        
-        # Filtrar registros del mismo barril cuando estuvo "En cuarto frío"
         df_barril = df_registros[(df_registros["Código"] == codigo_barril) & 
                                  (df_registros["Estado"] == "En cuarto frío")]
 
-        # Obtener el último registro
         if not df_barril.empty:
             ultimo_registro = df_barril.iloc[-1]
             lote_producto = ultimo_registro.get("Lote", "")
@@ -99,13 +88,11 @@ if estado_barril == "Despacho" and codigo_barril:
             st.success(f"Estilo asignado automáticamente: {estilo_cerveza}")
         else:
             st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
-
     except Exception as e:
         st.warning(f"No se pudo consultar registros previos: {e}")
         lote_producto = ""
         estilo_cerveza = ""
 
-# Cargar lista de clientes
 try:
     url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
     df_clientes = pd.read_csv(url_clientes)
@@ -119,7 +106,6 @@ except Exception as e:
     dict_direcciones = {}
     st.warning(f"No se pudieron cargar los clientes: {e}")
 
-# Cliente y dirección
 cliente = "Planta Castiza"
 direccion_cliente = ""
 
@@ -128,15 +114,12 @@ if estado_barril == "Despacho" and lista_clientes:
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
-# DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
 latas = []
 incluye_latas = "No"
 if estado_barril == "Despacho":
     incluye_latas = st.selectbox("¿🚚🚚Incluye despacho de latas?", ["No", "Sí"])
     if incluye_latas == "Sí":
-        st.markdown("""
-        <h4 style='color:#fff3aa;'>🚚 Despacho Latas</h4>
-        """, unsafe_allow_html=True)
+        st.markdown("<h4 style='color:#fff3aa;'>🚚 Despacho Latas</h4>", unsafe_allow_html=True)
 
         if "num_latas" not in st.session_state:
             st.session_state.num_latas = 1
@@ -169,7 +152,7 @@ if st.button("Guardar Registro"):
             "entry.1465957833": observaciones,
             "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
             "entry.1122334455": incluye_latas,
-            "entry.1437332932": lote_producto  # NUEVO CAMPO agregado al formulario
+            "entry.1437332932": lote_producto
         }
         response = requests.post(form_url, data=payload)
         if response.status_code in [200, 302]:
@@ -188,10 +171,9 @@ if st.button("Guardar Registro"):
                 "entry.1478892985": cliente,
                 "entry.1774006398": responsable
             }
-            requests.post(form_latas_url, data=payload_latas)
-        st.success("✅ Registro de latas enviado correctamente")
-        st.balloons()
-
+            response_latas = requests.post(form_latas_url, data=payload_latas)
+            if response_latas.status_code not in [200, 302]:
+                st.warning(f"❌ Error al enviar lata {idx+1}. Código: {response_latas.status_code}")
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
 st.markdown("<h2 style='color:#fff3aa;'>➕ Registrar Nuevo Cliente</h2>", unsafe_allow_html=True)
