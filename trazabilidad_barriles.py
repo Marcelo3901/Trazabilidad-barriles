@@ -68,6 +68,7 @@ st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles
 # ---------- SELECCIÓN ESTADO DEL BARRIL ----------
 estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
 
+
 # ---------- INGRESO CÓDIGO DEL BARRIL ----------
 codigo_barril = ""
 if estado_barril:
@@ -88,21 +89,37 @@ if estado_barril == "Despacho" and codigo_barril:
     try:
         url_registros = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Registros"
         df_registros = pd.read_csv(url_registros)
-        df_registros.columns = df_registros.columns.str.strip()
-        df_barril = df_registros[(df_registros["Código"] == codigo_barril) & (df_registros["Estado"] == "En cuarto frío")]
 
-        if not df_barril.empty:
-            ultimo_registro = df_barril.iloc[-1]
-            lote_producto = ultimo_registro.get("Lote", "")
-            estilo_cerveza = ultimo_registro.get("Estilo", "")
-            st.success(f"Lote asignado automáticamente: {lote_producto}")
-            st.success(f"Estilo asignado automáticamente: {estilo_cerveza}")
+        # Limpiar nombres de columnas
+        df_registros.columns = df_registros.columns.str.strip()
+
+        # Mostrar columnas disponibles para depuración (puedes comentar esto después)
+        st.write("🧩 Columnas detectadas en hoja Registros:", df_registros.columns.tolist())
+
+        if "Código" in df_registros.columns and "Estado" in df_registros.columns:
+            # Filtrar registros anteriores del mismo barril en estado "En cuarto frío"
+            df_barril = df_registros[
+                (df_registros["Código"] == codigo_barril) & (df_registros["Estado"] == "En cuarto frío")
+            ]
+
+            if not df_barril.empty:
+                ultimo_registro = df_barril.iloc[-1]
+                lote_producto = ultimo_registro.get("Lote", "")
+                estilo_cerveza = ultimo_registro.get("Estilo", "")
+                st.success(f"Lote asignado automáticamente: {lote_producto}")
+                st.success(f"Estilo asignado automáticamente: {estilo_cerveza}")
+            else:
+                st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
         else:
-            st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
+            st.warning("⚠️ La hoja de registros no contiene las columnas necesarias: 'Código' y 'Estado'. Revisa el archivo.")
+            st.write("📝 Encabezados detectados:", df_registros.columns.tolist())
+
     except Exception as e:
         st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
         lote_producto = ""
         estilo_cerveza = ""
+
+
 
 # ---------- CARGAR CLIENTES DESDE GOOGLE SHEETS ----------
 try:
