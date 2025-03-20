@@ -323,9 +323,6 @@ try:
 except Exception as e:
     st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
 
-st.set_page_config(page_title="Registro de Devoluciones", page_icon="📦")
-st.title("📦 Registro de Devoluciones de Barriles y Latas")
-
 # ------------------ FORMULARIO GENERAL ------------------
 tipo_devolucion = st.selectbox("Selecciona tipo de devolución:", ["", "Barril", "Latas"])
 
