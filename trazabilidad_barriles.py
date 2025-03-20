@@ -8,6 +8,11 @@ import os
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
 
+# --- Lista de estilos global ---
+estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
+           "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
+           "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
+
 # IMAGEN DE FONDO PERSONALIZADA Y ESTILOS GENERALES
 if os.path.exists("background.jpg"):
     with open("background.jpg", "rb") as img:
