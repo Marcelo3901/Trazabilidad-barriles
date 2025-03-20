@@ -100,6 +100,11 @@ if estado_barril == "Despacho" and codigo_barril:
         if "Estado" in df_datos.columns:
             df_datos["Estado"] = df_datos["Estado"].astype(str).str.strip()
 
+                    # Mostrar coincidencias
+        df_barril = df_datos[(df_datos["Código"] == codigo_barril) & (df_datos["Estado"] == "En cuarto frío")]
+        st.write("📋 Coincidencias encontradas:")
+        st.dataframe(df_barril)
+
         if not df_barril.empty:
             ultimo_registro = df_barril.iloc[-1]
             lote_producto = ultimo_registro.get("Lote", "")
