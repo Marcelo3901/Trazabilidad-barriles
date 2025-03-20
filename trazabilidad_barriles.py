@@ -100,24 +100,23 @@ if estado_barril == "Despacho" and codigo_barril:
         if "Estado" in df_datos.columns:
             df_datos["Estado"] = df_datos["Estado"].astype(str).str.strip()
 
-                    # Mostrar coincidencias
+        # Buscar coincidencias
         df_barril = df_datos[(df_datos["Código"] == codigo_barril) & (df_datos["Estado"] == "En cuarto frío")]
-        st.write("📋 Coincidencias encontradas:")
-        st.dataframe(df_barril)
 
         if not df_barril.empty:
             ultimo_registro = df_barril.iloc[-1]
-            lote_producto = ultimo_registro.get("Lote", "")
-            estilo_cerveza = ultimo_registro.get("Estilo", "")
+            lote_producto = ultimo_registro.get("Lote", "No disponible")
+            estilo_cerveza = ultimo_registro.get("Estilo", "No disponible")
             st.success(f"✅ Lote asignado automáticamente: {lote_producto}")
             st.success(f"✅ Estilo asignado automáticamente: {estilo_cerveza}")
         else:
-            st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. No se puede asignar Lote ni Estilo automáticamente.")
-
+            lote_producto = "No disponible"
+            estilo_cerveza = "No disponible"
+            st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. Se asignó 'No disponible'.")
     except Exception as e:
         st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
-        lote_producto = ""
-        estilo_cerveza = ""
+        lote_producto = "No disponible"
+        estilo_cerveza = "No disponible"
 
 
 
