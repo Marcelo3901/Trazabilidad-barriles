@@ -54,8 +54,6 @@ if os.path.exists("background.jpg"):
 st.markdown("<h1 style='text-align:center; color:#fff3aa;'>🍺 Sistema de Trazabilidad de Barriles y Latas - Castiza</h1>", unsafe_allow_html=True)
 
 # FORMULARIO DE REGISTRO DE BARRILES
-import streamlit as st
-import pandas as pd
 
 # Título
 st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
