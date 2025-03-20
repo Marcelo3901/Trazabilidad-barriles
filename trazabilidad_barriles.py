@@ -394,7 +394,6 @@ st.markdown("---")
 st.title("🗑️ Registro de Baja de Producto (Barril o Latas)")
 
 tipo_baja = st.selectbox("Selecciona tipo de baja:", ["", "Barril", "Latas"])
-cliente_baja = st.text_input("Cliente asociado a la baja")
 responsable_baja = st.text_input("Responsable que da de baja")
 observaciones_baja = st.text_area("Observaciones de baja (opcional)")
 fecha_actual_baja = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
@@ -403,7 +402,6 @@ fecha_actual_baja = datetime.now().strftime("%d/%m/%Y %H:%M:%S")
 if tipo_baja == "Barril":
     codigo_barril_baja = st.text_input("Código del barril a dar de baja")
     estilo_baja_barril = st.text_input("Estilo de cerveza (opcional)")
-    lote_barril_baja = st.text_input("Lote del producto (opcional)")
 
 elif tipo_baja == "Latas":
     cantidad_latas_baja = st.number_input("Cantidad de latas a dar de baja", min_value=1, step=1)
@@ -439,7 +437,7 @@ if st.button("Registrar Baja de Producto"):
 
     elif tipo_baja == "Latas":
         try:
-            url_form_latas_baja = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+            url_form_latas_baja = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/viewform?usp=sharing"
 
             form_data_baja_latas = {
                 "entry.457965266": str(cantidad_latas_baja),              # Cantidad
