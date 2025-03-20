@@ -128,23 +128,6 @@ if estado_barril == "Despacho" and lista_clientes:
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
-# Mostrar resumen (opcional)
-st.markdown("---")
-st.markdown("### 📝 Resumen del Registro")
-st.write(f"- Estado: **{estado_barril}**")
-st.write(f"- Código: **{codigo_barril}**")
-if estado_barril in ["En cuarto frío", "Despacho"]:
-    st.write(f"- Lote: **{lote_producto}**")
-if estado_barril == "En cuarto frío" or (estado_barril == "Despacho" and estilo_cerveza):
-    st.write(f"- Estilo: **{estilo_cerveza}**")
-if estado_barril == "Despacho":
-    st.write(f"- Cliente: **{cliente}**")
-    st.write(f"- Dirección: **{direccion_cliente}**")
-
-# Aquí puedes agregar el botón de "Guardar Registro" con envío a Google Sheets si ya tienes eso configurado
-
-
-
 # DESPACHO DE LATAS CON MÚLTIPLES ENTRADAS
 latas = []
 incluye_latas = "No"
