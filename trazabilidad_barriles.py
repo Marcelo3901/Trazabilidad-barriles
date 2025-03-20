@@ -372,11 +372,12 @@ if st.button("Registrar devolución"):
             url_form_latas = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
 
             form_data_latas = {
-                "entry.457965266": str(cantidad_latas),     # Cantidad de latas
-                "entry.689047838": estilo_cerveza,          # Estilo
-                "entry.2096096606": lote_latas,             # Lote
-                "entry.1478892985": cliente,                # Cliente
-                "entry.1774006398": responsable             # Responsable
+                "entry.457965266": str(cantidad_latas),        # Cantidad
+                "entry.689047838": estilo_cerveza,             # Estilo
+                "entry.2096096606": lote_latas,                # Lote
+                "entry.1478892985": cliente,                   # Cliente
+                "entry.1774006398": responsable,               # Responsable
+                "entry.1179145668": "Devolución"               # NUEVO CAMPO - Tipo de movimiento
             }
 
             response = requests.post(url_form_latas, data=form_data_latas)
