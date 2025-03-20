@@ -369,7 +369,7 @@ if st.button("Registrar devolución"):
 
     elif tipo_devolucion == "Latas":
         try:
-            url_form_latas = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+            url_form_latas = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
 
             form_data_latas = {
                 "entry.457965266": str(cantidad_latas),     # Cantidad de latas
