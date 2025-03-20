@@ -337,7 +337,6 @@ if tipo_devolucion == "Barril":
     codigo_barril = st.text_input("Código del barril")
     estilo_cerveza = st.text_input("Estilo de cerveza (opcional)")
     lote_producto = st.text_input("Lote del producto (opcional)")
-    incluye_latas = st.radio("¿Incluye latas?", ["Sí", "No"])
 
 elif tipo_devolucion == "Latas":
     cantidad_latas = st.number_input("Cantidad de latas devueltas", min_value=1, step=1)
@@ -359,7 +358,6 @@ if st.button("Registrar devolución"):
                 "entry.1661747572": responsable,                       # Responsable
                 "entry.1465957833": observaciones,                     # Observaciones
                 "entry.1234567890": lote_producto,                     # Lote (opcional)
-                "entry.1122334455": incluye_latas,                     # Incluye latas
                 "entry.1437332932": lote_producto                      # Lote repetido si se requiere
             }
 
