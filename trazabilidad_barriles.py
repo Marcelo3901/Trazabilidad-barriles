@@ -8,6 +8,7 @@ import os
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
+st.set_page_config(page_title="Registro de Devoluciones", page_icon="📦")
 
 # --- Lista de estilos global ---
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
@@ -321,8 +322,6 @@ except Exception as e:
     st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
            
 #DEVOLUCIONES
-
-st.set_page_config(page_title="Registro de Devoluciones", page_icon="📦")
 
 st.title("📦 Registro de Devoluciones de Barriles y Latas")
 # ------------------ FORMULARIO GENERAL ------------------
