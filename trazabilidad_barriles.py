@@ -321,12 +321,8 @@ try:
 except Exception as e:
     st.error(f"⚠️ No se pudo cargar la hoja de búsqueda: {e}")
            
-#DEVOLUCIONES
-
-st.title("📦 Registro de Devoluciones de Barriles y Latas")
 # ------------------ FORMULARIO GENERAL ------------------
 tipo_devolucion = st.selectbox("Selecciona tipo de devolución:", ["", "Barril", "Latas"])
-
 cliente = st.text_input("Cliente que devuelve")
 responsable = st.text_input("Responsable que recibe")
 observaciones = st.text_area("Observaciones (opcional)")
@@ -345,23 +341,25 @@ elif tipo_devolucion == "Latas":
 
 # ------------------ BOTÓN DE ENVÍO ------------------
 if st.button("Registrar devolución"):
-
     if tipo_devolucion == "Barril":
         try:
+            # ✅ URL del formulario de Google Forms para barriles
             url_form_barril = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
 
+            # 📤 Datos a enviar (asegúrate que los entry.xxx coincidan con tu formulario real)
             form_data_barril = {
-                "entry.311770370": codigo_barril,                       # Código del barril
-                "entry.1283669263": estilo_cerveza,                    # Estilo
-                "entry.1545499818": "Vacio",                           # Estado automático al devolver
-                "entry.91059345": cliente,                             # Cliente
-                "entry.1661747572": responsable,                       # Responsable
-                "entry.1465957833": observaciones,                     # Observaciones
-                "entry.1234567890": lote_producto,                     # Lote (opcional)
-                "entry.1437332932": lote_producto                      # Lote repetido si se requiere
+                "entry.311770370": codigo_barril,          # Código del barril
+                "entry.1283669263": estilo_cerveza,        # Estilo (opcional)
+                "entry.1545499818": "Devolución",          # Estado fijo al devolver
+                "entry.91059345": cliente,                 # Cliente
+                "entry.1661747572": responsable,           # Responsable
+                "entry.1465957833": observaciones,         # Observaciones
+                "entry.1234567890": lote_producto,         # Lote (opcional, cambia si tienes otro ID)
+                "entry.1437332932": lote_producto          # Lote repetido si tu formulario lo necesita
             }
 
             response = requests.post(url_form_barril, data=form_data_barril)
+
             if response.status_code in [200, 302]:
                 st.success("✅ Devolución de barril registrada correctamente.")
             else:
@@ -371,17 +369,20 @@ if st.button("Registrar devolución"):
 
     elif tipo_devolucion == "Latas":
         try:
+            # ✅ URL del formulario de Google Forms para latas
             url_form_latas = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
 
+            # 📤 Datos a enviar (entry.xxx deben coincidir con tu formulario de latas)
             form_data_latas = {
-                "entry.457965266": str(cantidad_latas),               # Cantidad
-                "entry.689047838": estilo_cerveza,                    # Estilo
-                "entry.2096096606": lote_latas,                       # Lote
-                "entry.1478892985": cliente,                          # Cliente
-                "entry.1774006398": responsable                       # Responsable
+                "entry.457965266": str(cantidad_latas),     # Cantidad de latas
+                "entry.689047838": estilo_cerveza,          # Estilo
+                "entry.2096096606": lote_latas,             # Lote
+                "entry.1478892985": cliente,                # Cliente
+                "entry.1774006398": responsable             # Responsable
             }
 
             response = requests.post(url_form_latas, data=form_data_latas)
+
             if response.status_code in [200, 302]:
                 st.success("✅ Devolución de latas registrada correctamente.")
             else:
