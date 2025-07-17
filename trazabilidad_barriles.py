@@ -183,7 +183,7 @@ if estado_barril == "Despacho":
             st.session_state.num_latas += 1
 
 # ---------- RESPONSABLE Y OBSERVACIONES ----------
-responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Operario 1", "Operario 2"]
+responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Yimer Luna", "Operario 2"]
 responsable = st.selectbox("Responsable", responsables)
 observaciones = st.text_area("Observaciones")
 
