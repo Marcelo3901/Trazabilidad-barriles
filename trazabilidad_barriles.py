@@ -6,36 +6,26 @@ import base64
 import os
 from datetime import datetime
 
-
-# --- NUEVO: Función de validación de flujo de estados ---
 def validar_flujo_estado(historial, nuevo_estado):
-    orden_estados = ["Sucio", "Lavado en bodega", "En cuarto frío", "Despacho"]
-    historial = historial[historial["Estado"].isin(orden_estados)]
-    estados_previos = historial["Estado"].tolist()
+    orden = ["Sucio", "Lavado en bodega", "En cuarto frío", "Despacho"]
+    historial = historial[historial["Estado"].isin(orden)]
+    previos = historial["Estado"].tolist()
 
-    # Caso ya completó ciclo
-    if estados_previos == orden_estados:
-        return False, "⚠️ Este barril ya completó el ciclo completo. Debe iniciar nuevamente como 'Sucio'."
-
-    # Inicio del flujo
-    if not estados_previos:
+    if previos == orden:
+        return False, "⚠️ Este barril ya completó el ciclo completo."
+    if not previos:
         if nuevo_estado != "Sucio":
-            return False, "⚠️ El barril debe comenzar en estado 'Sucio'."
+            return False, "⚠️ Primero debe registrarse como 'Sucio'."
     else:
-        ultimo = estados_previos[-1]
-        idx = orden_estados.index(ultimo)
-        if idx + 1 >= len(orden_estados):
-            return False, "⚠️ El barril ya completó el ciclo."
-        esperado = orden_estados[idx + 1]
+        if nuevo_estado in previos:
+            return False, f"⚠️ Ya existe el estado '{nuevo_estado}' para este barril."
+        idx = orden.index(previos[-1])
+        if idx + 1 >= len(orden):
+            return False, "⚠️ Ya completó el ciclo completo."
+        esperado = orden[idx + 1]
         if nuevo_estado != esperado:
-            return False, f"⚠️ El siguiente estado debe ser '{esperado}', no '{nuevo_estado}'."
-
-    # Evitar duplicados
-    if nuevo_estado in estados_previos:
-        return False, f"⚠️ El barril ya estuvo en estado '{nuevo_estado}'."
-
+            return False, f"⚠️ El siguiente estado debe ser '{esperado}'."
     return True, ""
-
 
 
 
