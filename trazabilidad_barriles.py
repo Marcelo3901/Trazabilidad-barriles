@@ -336,7 +336,7 @@ try:
         df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
 
     if not df_filtrado.empty:
-        st.dataframe(df_filtrado[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        st.dataframe(df_filtrado[["Marca de tiempo","Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
         st.warning("⚠️ No se encontraron registros con los filtros aplicados.")
 
