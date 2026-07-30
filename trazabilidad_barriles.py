@@ -263,7 +263,24 @@ estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega
 # ---------- INGRESO CÓDIGO DEL BARRIL ----------
 codigo_barril = ""
 if estado_barril:
-    codigo_barril = st.text_input("Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)", value="").strip()
+    etiqueta_codigo = "Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)"
+    ayuda_codigo = None
+
+    if estado_barril == "Despacho":
+        etiqueta_codigo = "Código del barril (opcional si el despacho es solo de latas)"
+        ayuda_codigo = (
+            "Déjalo vacío cuando el pedido contenga únicamente latas. "
+            "Si también sale un barril, ingresa su código."
+        )
+
+    codigo_barril = st.text_input(
+        etiqueta_codigo,
+        value="",
+        help=ayuda_codigo,
+    ).strip()
+
+    if estado_barril == "Despacho":
+        st.caption("Para un despacho exclusivo de latas no es necesario ingresar un barril.")
 
 # ---------- INGRESO DE LOTE Y ESTILO SI ESTÁ EN CUARTO FRÍO ----------
 lote_producto = ""
@@ -504,8 +521,19 @@ observaciones = st.text_area("Observaciones")
 if st.button("Guardar Registro"):
     errores_guardado = []
 
-    if not codigo_barril.strip():
-        errores_guardado.append("Debes ingresar un código de barril antes de enviar el formulario.")
+    registrar_barril = bool(codigo_barril.strip())
+    despacho_solo_latas = (
+        estado_barril == "Despacho"
+        and incluye_latas == "Sí"
+        and not registrar_barril
+    )
+
+    # El código solo deja de ser obligatorio cuando se despachan exclusivamente latas.
+    if not registrar_barril and not despacho_solo_latas:
+        errores_guardado.append(
+            "Debes ingresar un código de barril. "
+            "Solo puedes dejarlo vacío cuando el despacho sea exclusivamente de latas."
+        )
 
     inventario_actual = inventario_latas
     if incluye_latas == "Sí":
@@ -524,73 +552,97 @@ if st.button("Guardar Registro"):
         for error in dict.fromkeys(errores_guardado):
             st.error(f"⚠️ {error}")
     else:
-        # Primero se registra el movimiento principal del barril.
-        form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-        payload = {
-            "entry.311770370": codigo_barril,
-            "entry.1283669263": estilo_cerveza,
-            "entry.1545499818": estado_barril,
-            "entry.91059345": cliente,
-            "entry.1661747572": responsable,
-            "entry.1465957833": observaciones,
-            "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
-            "entry.1122334455": incluye_latas,
-            "entry.1437332932": lote_producto,
-        }
+        registro_barril_exitoso = not registrar_barril
+        error_envio_barril = ""
 
-        try:
-            response = requests.post(form_url, data=payload, timeout=20)
-        except requests.RequestException as e:
-            st.error(f"❌ No se pudo enviar el registro principal: {e}")
-        else:
-            if response.status_code not in [200, 302]:
-                st.error(
-                    f"❌ Error al enviar el formulario principal. Código: {response.status_code}"
-                )
+        # El formulario principal solo se envía cuando realmente hay un barril.
+        if registrar_barril:
+            form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+            payload = {
+                "entry.311770370": codigo_barril,
+                "entry.1283669263": estilo_cerveza,
+                "entry.1545499818": estado_barril,
+                "entry.91059345": cliente,
+                "entry.1661747572": responsable,
+                "entry.1465957833": observaciones,
+                "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
+                "entry.1122334455": incluye_latas,
+                "entry.1437332932": lote_producto,
+            }
+
+            try:
+                response = requests.post(form_url, data=payload, timeout=20)
+            except requests.RequestException as e:
+                error_envio_barril = f"No se pudo enviar el registro del barril: {e}"
             else:
-                errores_envio_latas = []
+                if response.status_code in [200, 302]:
+                    registro_barril_exitoso = True
+                else:
+                    error_envio_barril = (
+                        "Error al enviar el formulario del barril. "
+                        f"Código: {response.status_code}"
+                    )
+
+        if error_envio_barril:
+            st.error(f"❌ {error_envio_barril}")
+            if incluye_latas == "Sí":
+                st.info(
+                    "Las latas no fueron enviadas para evitar que el pedido quede parcialmente registrado."
+                )
+        elif registro_barril_exitoso:
+            errores_envio_latas = []
+
+            if incluye_latas == "Sí":
+                form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+
+                for idx, item in enumerate(latas, start=1):
+                    payload_latas = {
+                        "entry.457965266": str(item["cantidad"]),
+                        "entry.689047838": item["estilo"],
+                        "entry.2096096606": item["lote"],
+                        "entry.1478892985": cliente,
+                        "entry.1774006398": responsable,
+                        "entry.1179145668": "Despacho",
+                    }
+
+                    try:
+                        respuesta_latas = requests.post(
+                            form_latas_url,
+                            data=payload_latas,
+                            timeout=20,
+                        )
+                    except requests.RequestException as e:
+                        errores_envio_latas.append(
+                            f"Orden {idx} ({item['estilo']} / {item['lote']}): {e}"
+                        )
+                        continue
+
+                    if respuesta_latas.status_code not in [200, 302]:
+                        errores_envio_latas.append(
+                            f"Orden {idx} ({item['estilo']} / {item['lote']}), "
+                            f"código {respuesta_latas.status_code}"
+                        )
+
+            if errores_envio_latas:
+                if registrar_barril:
+                    st.warning("El barril fue registrado, pero algunas órdenes de latas fallaron:")
+                else:
+                    st.warning("Algunas órdenes de latas no pudieron registrarse:")
+                for error in errores_envio_latas:
+                    st.warning(f"• {error}")
+            else:
+                cargar_hoja_csv.clear()
+
+                if despacho_solo_latas:
+                    st.success("✅ Despacho de latas registrado correctamente, sin barril")
+                elif incluye_latas == "Sí":
+                    st.success("✅ Barril y despacho de latas registrados correctamente")
+                else:
+                    st.success("✅ Registro del barril enviado correctamente")
 
                 if incluye_latas == "Sí":
-                    form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-
-                    for idx, item in enumerate(latas, start=1):
-                        payload_latas = {
-                            "entry.457965266": str(item["cantidad"]),
-                            "entry.689047838": item["estilo"],
-                            "entry.2096096606": item["lote"],
-                            "entry.1478892985": cliente,
-                            "entry.1774006398": responsable,
-                            "entry.1179145668": "Despacho",
-                        }
-
-                        try:
-                            respuesta_latas = requests.post(
-                                form_latas_url,
-                                data=payload_latas,
-                                timeout=20,
-                            )
-                        except requests.RequestException as e:
-                            errores_envio_latas.append(
-                                f"Orden {idx} ({item['estilo']} / {item['lote']}): {e}"
-                            )
-                            continue
-
-                        if respuesta_latas.status_code not in [200, 302]:
-                            errores_envio_latas.append(
-                                f"Orden {idx} ({item['estilo']} / {item['lote']}), "
-                                f"código {respuesta_latas.status_code}"
-                            )
-
-                if errores_envio_latas:
-                    st.warning("El barril fue registrado, pero algunas órdenes de latas fallaron:")
-                    for error in errores_envio_latas:
-                        st.warning(f"• {error}")
-                else:
-                    cargar_hoja_csv.clear()
-                    st.success("✅ Registro enviado correctamente")
-                    if incluye_latas == "Sí":
-                        st.success("✅ El despacho de latas fue descontado por estilo y lote")
-                    st.balloons()
+                    st.success("✅ El inventario fue descontado por estilo y lote")
+                st.balloons()
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
