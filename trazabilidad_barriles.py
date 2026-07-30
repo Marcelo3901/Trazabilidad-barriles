@@ -1,10 +1,11 @@
 import streamlit as st
 import pandas as pd
 import requests
-from urllib.parse import urlencode
+from urllib.parse import quote
 import base64
 import os
 from datetime import datetime
+import unicodedata
 
 def validar_flujo_estado(historial, nuevo_estado):
     orden = ["Sucio", "Lavado en bodega", "En cuarto frío", "Despacho"]
@@ -31,6 +32,173 @@ def validar_flujo_estado(historial, nuevo_estado):
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
+
+
+# ---------- CONFIGURACIÓN DE GOOGLE SHEETS PARA INVENTARIO DE LATAS ----------
+SPREADSHEET_ID = "1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY"
+HOJA_INGRESOS_LATAS = "IngresoLatas"
+HOJA_MOVIMIENTOS_LATAS = "VLatas"
+
+
+def normalizar_clave(valor):
+    """Normaliza texto para comparar estilos, lotes y estados sin errores de mayúsculas o tildes."""
+    if pd.isna(valor):
+        return ""
+    texto = " ".join(str(valor).strip().split())
+    texto = unicodedata.normalize("NFKD", texto)
+    texto = "".join(caracter for caracter in texto if not unicodedata.combining(caracter))
+    return texto.casefold()
+
+
+def limpiar_cantidades(serie):
+    """Convierte cantidades de latas a enteros y elimina separadores de miles."""
+    texto = serie.fillna("").astype(str).str.strip()
+    texto = texto.str.replace(r"[^0-9-]", "", regex=True)
+    return pd.to_numeric(texto, errors="coerce").fillna(0).astype(int)
+
+
+@st.cache_data(ttl=30, show_spinner=False)
+def cargar_hoja_csv(nombre_hoja):
+    """Carga una pestaña pública del Google Sheet y conserva el resultado por 30 segundos."""
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq"
+        f"?tqx=out:csv&sheet={quote(nombre_hoja)}"
+    )
+    try:
+        df = pd.read_csv(url)
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+
+    df.columns = df.columns.astype(str).str.strip()
+    return df
+
+
+def calcular_inventario_latas():
+    """
+    Calcula inventario por estilo y lote:
+    IngresoLatas - VLatas.
+
+    En VLatas:
+    - Despacho, Baja o Estado vacío: restan inventario.
+    - Devolución: vuelve a sumar inventario.
+    """
+    ingresos = cargar_hoja_csv(HOJA_INGRESOS_LATAS).copy()
+    movimientos = cargar_hoja_csv(HOJA_MOVIMIENTOS_LATAS).copy()
+
+    columnas_necesarias = {"Estilo", "Cantidad", "Lote"}
+    faltantes_ingresos = columnas_necesarias.difference(ingresos.columns)
+    if faltantes_ingresos:
+        raise ValueError(
+            f"Faltan columnas en {HOJA_INGRESOS_LATAS}: {', '.join(sorted(faltantes_ingresos))}"
+        )
+
+    # VLatas puede estar sin registros, pero debe conservar sus encabezados.
+    if movimientos.empty and not columnas_necesarias.issubset(movimientos.columns):
+        movimientos = pd.DataFrame(columns=["Estilo", "Cantidad", "Lote", "Estado"])
+
+    faltantes_movimientos = columnas_necesarias.difference(movimientos.columns)
+    if faltantes_movimientos:
+        raise ValueError(
+            f"Faltan columnas en {HOJA_MOVIMIENTOS_LATAS}: "
+            f"{', '.join(sorted(faltantes_movimientos))}"
+        )
+
+    ingresos["Estilo"] = ingresos["Estilo"].fillna("").astype(str).str.strip()
+    ingresos["Lote"] = ingresos["Lote"].fillna("").astype(str).str.strip().str.upper()
+    ingresos["Cantidad"] = limpiar_cantidades(ingresos["Cantidad"])
+    ingresos["_estilo_key"] = ingresos["Estilo"].map(normalizar_clave)
+    ingresos["_lote_key"] = ingresos["Lote"].map(normalizar_clave)
+    ingresos = ingresos[
+        (ingresos["_estilo_key"] != "")
+        & (ingresos["_lote_key"] != "")
+        & (ingresos["Cantidad"] != 0)
+    ]
+
+    ingresos_agrupados = (
+        ingresos.groupby(["_estilo_key", "_lote_key"], as_index=False)
+        .agg(
+            Estilo=("Estilo", "last"),
+            Lote=("Lote", "last"),
+            Ingresado=("Cantidad", "sum"),
+        )
+    )
+
+    movimientos["Estilo"] = movimientos["Estilo"].fillna("").astype(str).str.strip()
+    movimientos["Lote"] = movimientos["Lote"].fillna("").astype(str).str.strip().str.upper()
+    movimientos["Cantidad"] = limpiar_cantidades(movimientos["Cantidad"])
+    movimientos["_estilo_key"] = movimientos["Estilo"].map(normalizar_clave)
+    movimientos["_lote_key"] = movimientos["Lote"].map(normalizar_clave)
+
+    if "Estado" in movimientos.columns:
+        movimientos["_estado_key"] = movimientos["Estado"].map(normalizar_clave)
+    else:
+        movimientos["_estado_key"] = ""
+
+    # Al restar un movimiento negativo, una devolución vuelve a sumar existencias.
+    movimientos["Movimiento_neto"] = movimientos["Cantidad"]
+    es_devolucion = movimientos["_estado_key"].eq("devolucion")
+    movimientos.loc[es_devolucion, "Movimiento_neto"] *= -1
+
+    movimientos = movimientos[
+        (movimientos["_estilo_key"] != "")
+        & (movimientos["_lote_key"] != "")
+        & (movimientos["Movimiento_neto"] != 0)
+    ]
+
+    movimientos_agrupados = (
+        movimientos.groupby(["_estilo_key", "_lote_key"], as_index=False)["Movimiento_neto"]
+        .sum()
+    )
+
+    inventario = ingresos_agrupados.merge(
+        movimientos_agrupados,
+        on=["_estilo_key", "_lote_key"],
+        how="left",
+    )
+    inventario["Movimiento_neto"] = inventario["Movimiento_neto"].fillna(0).astype(int)
+    inventario["Disponible"] = inventario["Ingresado"] - inventario["Movimiento_neto"]
+    inventario["Disponible"] = inventario["Disponible"].astype(int)
+
+    # Solo se ofrecen lotes que todavía tienen unidades disponibles.
+    inventario = inventario[inventario["Disponible"] > 0].copy()
+    inventario.sort_values(["Estilo", "Lote"], inplace=True, key=lambda s: s.astype(str).str.casefold())
+    inventario.reset_index(drop=True, inplace=True)
+    return inventario
+
+
+def validar_existencias_latas(latas_solicitadas, inventario):
+    """Valida el total solicitado por estilo/lote, incluso si el mismo lote se repite en varias órdenes."""
+    if not latas_solicitadas:
+        return ["Debes completar al menos una orden de latas."]
+
+    pedido = pd.DataFrame(latas_solicitadas).copy()
+    pedido["_estilo_key"] = pedido["estilo"].map(normalizar_clave)
+    pedido["_lote_key"] = pedido["lote"].map(normalizar_clave)
+    pedido_agrupado = (
+        pedido.groupby(["_estilo_key", "_lote_key"], as_index=False)
+        .agg(
+            Estilo=("estilo", "last"),
+            Lote=("lote", "last"),
+            Solicitado=("cantidad", "sum"),
+        )
+    )
+
+    disponibles = inventario[["_estilo_key", "_lote_key", "Disponible"]].copy()
+    comparacion = pedido_agrupado.merge(
+        disponibles,
+        on=["_estilo_key", "_lote_key"],
+        how="left",
+    )
+    comparacion["Disponible"] = comparacion["Disponible"].fillna(0).astype(int)
+
+    errores = []
+    for fila in comparacion.itertuples(index=False):
+        if int(fila.Solicitado) > int(fila.Disponible):
+            errores.append(
+                f"{fila.Estilo} / lote {fila.Lote}: solicitaste {int(fila.Solicitado)} "
+                f"y solo hay {int(fila.Disponible)} disponibles."
+            )
+    return errores
 
 # --- Lista de estilos global ---
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
@@ -183,26 +351,149 @@ if estado_barril == "Despacho" and lista_clientes:
     direccion_cliente = dict_direcciones.get(cliente, "")
     st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
 
-# ---------- DESPACHO DE LATAS (DINÁMICO) ----------
+# ---------- DESPACHO DE LATAS CON INVENTARIO POR ESTILO Y LOTE ----------
 latas = []
+errores_configuracion_latas = []
+inventario_latas = pd.DataFrame()
 incluye_latas = "No"
 
 if estado_barril == "Despacho":
-    incluye_latas = st.selectbox("¿🚚 Incluye despacho de latas?", ["No", "Sí"])
+    incluye_latas = st.selectbox(
+        "¿🚚 Incluye despacho de latas?",
+        ["No", "Sí"],
+        key="incluye_latas_despacho",
+    )
+
     if incluye_latas == "Sí":
-        st.markdown("<h4 style='color:#fff3aa;'>🚚 Detalles de despacho de latas</h4>", unsafe_allow_html=True)
+        st.markdown(
+            "<h4 style='color:#fff3aa;'>🚚 Detalles de despacho de latas</h4>",
+            unsafe_allow_html=True,
+        )
 
-        if "num_latas" not in st.session_state:
-            st.session_state.num_latas = 1
+        if st.button("🔄 Actualizar inventario de latas", key="actualizar_inventario_latas"):
+            cargar_hoja_csv.clear()
+            st.rerun()
 
-        for i in range(st.session_state.num_latas):
-            st.markdown(f"**[ORDEN {i+1}]**")
-            cantidad = st.number_input(f"Cantidad (Orden {i+1})", min_value=1, key=f"cantidad_lata_{i}")
-            lote = st.text_input(f"Lote (Orden {i+1})", key=f"lote_lata_{i}")
-            latas.append((cantidad, lote))
+        try:
+            inventario_latas = calcular_inventario_latas()
+        except Exception as e:
+            st.error(f"❌ No se pudo calcular el inventario de latas: {e}")
+            errores_configuracion_latas.append("No fue posible consultar el inventario de latas.")
 
-        if st.button("➕ Agregar lata diferente lote"):
-            st.session_state.num_latas += 1
+        if inventario_latas.empty:
+            st.warning("⚠️ No hay lotes de latas con existencias disponibles.")
+            errores_configuracion_latas.append("No hay inventario de latas disponible para despachar.")
+        else:
+            resumen_estilos = (
+                inventario_latas.groupby("Estilo", as_index=False)["Disponible"]
+                .sum()
+                .sort_values("Estilo", key=lambda s: s.astype(str).str.casefold())
+            )
+            st.caption("Existencias actuales por estilo")
+            st.dataframe(
+                resumen_estilos,
+                hide_index=True,
+                use_container_width=True,
+            )
+
+            if "num_latas" not in st.session_state:
+                st.session_state.num_latas = 1
+
+            estilos_disponibles = inventario_latas["Estilo"].drop_duplicates().tolist()
+            opcion_vacia_estilo = "— Selecciona un estilo —"
+            opcion_vacia_lote = "— Selecciona un lote —"
+
+            for i in range(st.session_state.num_latas):
+                st.markdown(f"### Orden {i + 1}")
+
+                estilo_lata = st.selectbox(
+                    f"Estilo de cerveza (Orden {i + 1})",
+                    [opcion_vacia_estilo] + estilos_disponibles,
+                    key=f"estilo_lata_{i}",
+                )
+
+                if estilo_lata == opcion_vacia_estilo:
+                    errores_configuracion_latas.append(
+                        f"Selecciona el estilo de la orden {i + 1}."
+                    )
+                    st.selectbox(
+                        f"Lote disponible (Orden {i + 1})",
+                        [opcion_vacia_lote],
+                        key=f"lote_lata_{i}",
+                        disabled=True,
+                    )
+                    continue
+
+                inventario_estilo = inventario_latas[
+                    inventario_latas["Estilo"] == estilo_lata
+                ].copy()
+                disponibilidad_por_lote = {
+                    fila.Lote: int(fila.Disponible)
+                    for fila in inventario_estilo.itertuples(index=False)
+                }
+                lotes_disponibles = list(disponibilidad_por_lote.keys())
+
+                lote_lata = st.selectbox(
+                    f"Lote disponible (Orden {i + 1})",
+                    [opcion_vacia_lote] + lotes_disponibles,
+                    format_func=lambda lote, mapa=disponibilidad_por_lote: (
+                        lote
+                        if lote == opcion_vacia_lote
+                        else f"{lote} — {mapa[lote]} latas disponibles"
+                    ),
+                    key=f"lote_lata_{i}",
+                )
+
+                if lote_lata == opcion_vacia_lote:
+                    errores_configuracion_latas.append(
+                        f"Selecciona el lote de la orden {i + 1}."
+                    )
+                    continue
+
+                disponible_lote = disponibilidad_por_lote[lote_lata]
+                cantidad_key = f"cantidad_lata_{i}"
+
+                # Ajusta el valor guardado si el usuario cambia a un lote con menos inventario.
+                if cantidad_key in st.session_state:
+                    cantidad_actual = int(st.session_state[cantidad_key])
+                    if cantidad_actual < 1:
+                        st.session_state[cantidad_key] = 1
+                    elif cantidad_actual > disponible_lote:
+                        st.session_state[cantidad_key] = disponible_lote
+
+                cantidad = st.number_input(
+                    f"Cantidad (Orden {i + 1})",
+                    min_value=1,
+                    max_value=disponible_lote,
+                    step=1,
+                    key=cantidad_key,
+                    help=f"Máximo disponible para este lote: {disponible_lote}",
+                )
+
+                latas.append(
+                    {
+                        "cantidad": int(cantidad),
+                        "estilo": estilo_lata,
+                        "lote": lote_lata,
+                    }
+                )
+                st.caption(f"Disponible en el lote seleccionado: {disponible_lote} latas")
+
+            col_agregar, col_quitar = st.columns(2)
+            if col_agregar.button("➕ Agregar otro lote", key="agregar_orden_latas"):
+                st.session_state.num_latas += 1
+                st.rerun()
+
+            if col_quitar.button(
+                "➖ Quitar última orden",
+                key="quitar_orden_latas",
+                disabled=st.session_state.num_latas <= 1,
+            ):
+                indice = st.session_state.num_latas - 1
+                for prefijo in ("estilo_lata_", "lote_lata_", "cantidad_lata_"):
+                    st.session_state.pop(f"{prefijo}{indice}", None)
+                st.session_state.num_latas -= 1
+                st.rerun()
 
 # ---------- RESPONSABLE Y OBSERVACIONES ----------
 responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Yimer Luna", "Operario 2"]
@@ -211,10 +502,29 @@ observaciones = st.text_area("Observaciones")
 
 # ---------- GUARDAR FORMULARIO ----------
 if st.button("Guardar Registro"):
+    errores_guardado = []
+
     if not codigo_barril.strip():
-        st.warning("⚠️ Debes ingresar un código de barril antes de enviar el formulario.")
+        errores_guardado.append("Debes ingresar un código de barril antes de enviar el formulario.")
+
+    inventario_actual = inventario_latas
+    if incluye_latas == "Sí":
+        errores_guardado.extend(errores_configuracion_latas)
+
+        # Reconsulta el Sheet justo antes de guardar para reducir el riesgo de usar datos antiguos.
+        if not errores_configuracion_latas:
+            try:
+                cargar_hoja_csv.clear()
+                inventario_actual = calcular_inventario_latas()
+                errores_guardado.extend(validar_existencias_latas(latas, inventario_actual))
+            except Exception as e:
+                errores_guardado.append(f"No fue posible validar el inventario actualizado: {e}")
+
+    if errores_guardado:
+        for error in dict.fromkeys(errores_guardado):
+            st.error(f"⚠️ {error}")
     else:
-        # Enviar formulario principal
+        # Primero se registra el movimiento principal del barril.
         form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
         payload = {
             "entry.311770370": codigo_barril,
@@ -225,29 +535,62 @@ if st.button("Guardar Registro"):
             "entry.1465957833": observaciones,
             "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
             "entry.1122334455": incluye_latas,
-            "entry.1437332932": lote_producto
+            "entry.1437332932": lote_producto,
         }
-        response = requests.post(form_url, data=payload)
-        if response.status_code in [200, 302]:
-            st.success("✅ Registro enviado correctamente")
-            st.balloons()
-        else:
-            st.error(f"❌ Error al enviar el formulario. Código: {response.status_code}")
 
-        # Enviar formulario de latas (si corresponde)
-        if incluye_latas == "Sí" and latas:
-            form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-            for idx, (cant, lot) in enumerate(latas):
-                payload_latas = {
-                    "entry.457965266": str(cant),
-                    "entry.689047838": estilo_cerveza,
-                    "entry.2096096606": lot,
-                    "entry.1478892985": cliente,
-                    "entry.1774006398": responsable
-                }
-                r_latas = requests.post(form_latas_url, data=payload_latas)
-                if r_latas.status_code not in [200, 302]:
-                    st.warning(f"❌ Error al enviar lata {idx+1}. Código: {r_latas.status_code}")
+        try:
+            response = requests.post(form_url, data=payload, timeout=20)
+        except requests.RequestException as e:
+            st.error(f"❌ No se pudo enviar el registro principal: {e}")
+        else:
+            if response.status_code not in [200, 302]:
+                st.error(
+                    f"❌ Error al enviar el formulario principal. Código: {response.status_code}"
+                )
+            else:
+                errores_envio_latas = []
+
+                if incluye_latas == "Sí":
+                    form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+
+                    for idx, item in enumerate(latas, start=1):
+                        payload_latas = {
+                            "entry.457965266": str(item["cantidad"]),
+                            "entry.689047838": item["estilo"],
+                            "entry.2096096606": item["lote"],
+                            "entry.1478892985": cliente,
+                            "entry.1774006398": responsable,
+                            "entry.1179145668": "Despacho",
+                        }
+
+                        try:
+                            respuesta_latas = requests.post(
+                                form_latas_url,
+                                data=payload_latas,
+                                timeout=20,
+                            )
+                        except requests.RequestException as e:
+                            errores_envio_latas.append(
+                                f"Orden {idx} ({item['estilo']} / {item['lote']}): {e}"
+                            )
+                            continue
+
+                        if respuesta_latas.status_code not in [200, 302]:
+                            errores_envio_latas.append(
+                                f"Orden {idx} ({item['estilo']} / {item['lote']}), "
+                                f"código {respuesta_latas.status_code}"
+                            )
+
+                if errores_envio_latas:
+                    st.warning("El barril fue registrado, pero algunas órdenes de latas fallaron:")
+                    for error in errores_envio_latas:
+                        st.warning(f"• {error}")
+                else:
+                    cargar_hoja_csv.clear()
+                    st.success("✅ Registro enviado correctamente")
+                    if incluye_latas == "Sí":
+                        st.success("✅ El despacho de latas fue descontado por estilo y lote")
+                    st.balloons()
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
