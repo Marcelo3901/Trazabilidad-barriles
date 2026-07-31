@@ -6,29 +6,14 @@ import base64
 import os
 from datetime import datetime
 import unicodedata
+import hashlib
+import io
+import json
+import re
+import time
+import uuid
 
-def validar_flujo_estado(historial, nuevo_estado):
-    orden = ["Sucio", "Lavado en bodega", "En cuarto frío", "Despacho"]
-    historial = historial[historial["Estado"].isin(orden)]
-    previos = historial["Estado"].tolist()
-
-    if previos == orden:
-        return False, "⚠️ Este barril ya completó el ciclo completo."
-    if not previos:
-        if nuevo_estado != "Sucio":
-            return False, "⚠️ Primero debe registrarse como 'Sucio'."
-    else:
-        if nuevo_estado in previos:
-            return False, f"⚠️ Ya existe el estado '{nuevo_estado}' para este barril."
-        idx = orden.index(previos[-1])
-        if idx + 1 >= len(orden):
-            return False, "⚠️ Ya completó el ciclo completo."
-        esperado = orden[idx + 1]
-        if nuevo_estado != esperado:
-            return False, f"⚠️ El siguiente estado debe ser '{esperado}'."
-    return True, ""
-
-
+# La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
@@ -200,6 +185,443 @@ def validar_existencias_latas(latas_solicitadas, inventario):
             )
     return errores
 
+
+# ---------- SEGURIDAD E IDEMPOTENCIA PARA MOVIMIENTOS DE BARRILES ----------
+HOJA_BARRILES = "DatosM"
+HOJA_CLIENTES = "RClientes"
+FORM_BARRILES_URL = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
+FORM_LATAS_URL = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
+URL_DATOS_BARRILES_PUBLICA = (
+    f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq"
+    f"?tqx=out:csv&sheet={quote(HOJA_BARRILES)}"
+)
+
+
+def leer_secreto(nombre):
+    """Lee un secreto sin impedir que la app arranque cuando aún no existe secrets.toml."""
+    try:
+        valor = st.secrets.get(nombre, "")
+    except Exception:
+        return ""
+    return "" if valor is None else str(valor).strip()
+
+
+APPS_SCRIPT_MOVIMIENTOS_URL = leer_secreto("APPS_SCRIPT_MOVIMIENTOS_URL")
+APPS_SCRIPT_MOVIMIENTOS_TOKEN = leer_secreto("APPS_SCRIPT_MOVIMIENTOS_TOKEN")
+BACKEND_SEGURO_ACTIVO = bool(
+    APPS_SCRIPT_MOVIMIENTOS_URL and APPS_SCRIPT_MOVIMIENTOS_TOKEN
+)
+
+
+def normalizar_codigo_barril(valor):
+    """Convierte códigos numéricos de Sheets (por ejemplo 30275.0) a texto limpio."""
+    if pd.isna(valor):
+        return ""
+    texto = str(valor).strip()
+    if re.fullmatch(r"\d+\.0+", texto):
+        texto = texto.split(".", 1)[0]
+    return texto
+
+
+def combinar_columnas(df, candidatos):
+    """Combina columnas duplicadas de Google Sheets conservando el primer valor no vacío."""
+    salida = pd.Series("", index=df.index, dtype="object")
+    for nombre in candidatos:
+        if nombre not in df.columns:
+            continue
+        valores = df[nombre].fillna("").astype(str).str.strip()
+        vacios = salida.fillna("").astype(str).str.strip().eq("")
+        salida.loc[vacios & valores.ne("")] = valores.loc[vacios & valores.ne("")]
+    return salida
+
+
+def convertir_fechas_sheet(serie):
+    """Admite fechas DD/MM/AAAA y números seriales de Google Sheets."""
+    texto = serie.fillna("").astype(str).str.strip()
+    fechas = pd.to_datetime(texto, dayfirst=True, errors="coerce")
+    numeros = pd.to_numeric(texto.str.replace(",", ".", regex=False), errors="coerce")
+    seriales = fechas.isna() & numeros.between(20000, 80000, inclusive="both")
+    if seriales.any():
+        fechas.loc[seriales] = pd.to_datetime(
+            numeros.loc[seriales], unit="D", origin="1899-12-30", errors="coerce"
+        )
+    return fechas
+
+
+def preparar_datos_barriles(df_original):
+    """Deja una sola estructura de columnas aunque DatosM tenga encabezados repetidos."""
+    if df_original is None or df_original.empty:
+        return pd.DataFrame(
+            columns=[
+                "Marca temporal", "Código", "Lote", "Estilo", "Estado", "Cliente",
+                "Responsable", "Observaciones", "Operación ID", "_estado_key", "_orden_fila"
+            ]
+        )
+
+    df = df_original.copy()
+    df.columns = df.columns.astype(str).str.strip()
+    salida = pd.DataFrame(index=df.index)
+    salida["Marca temporal"] = combinar_columnas(
+        df, ["Marca temporal", "Marca temporal.1"]
+    )
+    salida["Código"] = combinar_columnas(df, ["Código", "Codigo", "Código.1", "Codigo.1"])
+    salida["Lote"] = combinar_columnas(
+        df, ["Lote", "lote", "Lote.1", "lote.1"]
+    )
+    salida["Estilo"] = combinar_columnas(df, ["Estilo", "Estilo.1"])
+    salida["Estado"] = combinar_columnas(df, ["Estado", "Estado.1"])
+    salida["Cliente"] = combinar_columnas(df, ["Cliente", "Cliente.1"])
+    salida["Responsable"] = combinar_columnas(df, ["Responsable", "Responsable.1"])
+    salida["Observaciones"] = combinar_columnas(
+        df, ["Observaciones", "Observaciones.1"]
+    )
+    salida["Operación ID"] = combinar_columnas(
+        df,
+        [
+            "Operación ID", "Operacion ID", "Operación ID.1", "Operacion ID.1",
+            "ID Operación", "ID Operacion"
+        ],
+    )
+
+    salida["Código"] = salida["Código"].map(normalizar_codigo_barril)
+    salida["Marca temporal"] = convertir_fechas_sheet(salida["Marca temporal"])
+    salida["Lote"] = salida["Lote"].fillna("").astype(str).str.strip()
+    salida["Estilo"] = salida["Estilo"].fillna("").astype(str).str.strip()
+    salida["Estado"] = salida["Estado"].fillna("").astype(str).str.strip()
+    salida["Cliente"] = salida["Cliente"].fillna("").astype(str).str.strip()
+    salida["Responsable"] = salida["Responsable"].fillna("").astype(str).str.strip()
+    salida["Observaciones"] = salida["Observaciones"].fillna("").astype(str).str.strip()
+    salida["Operación ID"] = salida["Operación ID"].fillna("").astype(str).str.strip()
+    salida["_estado_key"] = salida["Estado"].map(normalizar_clave)
+    salida["_orden_fila"] = range(len(salida))
+    return salida
+
+
+def cargar_csv_publico_fresco(nombre_hoja, timeout=30):
+    """Consulta la hoja sin caché para validar el estado real antes de guardar."""
+    nonce = int(time.time() * 1000)
+    url = (
+        f"https://docs.google.com/spreadsheets/d/{SPREADSHEET_ID}/gviz/tq"
+        f"?tqx=out:csv&sheet={quote(nombre_hoja)}&_={nonce}"
+    )
+    respuesta = requests.get(
+        url,
+        timeout=timeout,
+        headers={"Cache-Control": "no-cache", "Pragma": "no-cache"},
+    )
+    respuesta.raise_for_status()
+    try:
+        df = pd.read_csv(io.StringIO(respuesta.text))
+    except pd.errors.EmptyDataError:
+        return pd.DataFrame()
+    df.columns = df.columns.astype(str).str.strip()
+    return df
+
+
+@st.cache_data(ttl=10, show_spinner=False)
+def cargar_datos_barriles_ui():
+    """Carga rápida para construir la interfaz; al guardar siempre se consulta de nuevo."""
+    return preparar_datos_barriles(cargar_csv_publico_fresco(HOJA_BARRILES))
+
+
+def cargar_datos_barriles_frescos():
+    return preparar_datos_barriles(cargar_csv_publico_fresco(HOJA_BARRILES))
+
+
+def obtener_ultimos_movimientos(df):
+    """Obtiene la última fila registrada de cada código, usando el orden real de la hoja."""
+    if df is None or df.empty:
+        return pd.DataFrame(columns=df.columns if isinstance(df, pd.DataFrame) else [])
+    validos = df[df["Código"].astype(str).str.strip().ne("")].copy()
+    if validos.empty:
+        return validos
+    validos.sort_values("_orden_fila", inplace=True)
+    return validos.drop_duplicates(subset="Código", keep="last").copy()
+
+
+def obtener_ultimo_movimiento(df, codigo):
+    codigo = normalizar_codigo_barril(codigo)
+    if not codigo or df is None or df.empty:
+        return None
+    historial = df[df["Código"] == codigo].sort_values("_orden_fila")
+    if historial.empty:
+        return None
+    return historial.iloc[-1]
+
+
+def barriles_actualmente_en_cuarto_frio(df):
+    ultimos = obtener_ultimos_movimientos(df)
+    if ultimos.empty:
+        return ultimos
+    return ultimos[ultimos["_estado_key"].eq("en cuarto frio")].copy()
+
+
+def validar_formato_codigo_barril(codigo):
+    codigo = normalizar_codigo_barril(codigo)
+    if not re.fullmatch(r"(?:20|30|58)\d{3}", codigo):
+        return False, "El código debe tener 5 dígitos y empezar por 20, 30 o 58."
+    return True, ""
+
+
+def operacion_ya_registrada(df, operacion_id):
+    if not operacion_id or df is None or df.empty:
+        return False
+    op = str(operacion_id).strip()
+    if "Operación ID" in df.columns and df["Operación ID"].eq(op).any():
+        return True
+    patron = f"[OP:{op}]"
+    return df["Observaciones"].fillna("").astype(str).str.contains(
+        re.escape(patron), regex=True
+    ).any()
+
+
+def validar_movimiento_barril_local(df, codigo, nuevo_estado, estilo="", lote=""):
+    """
+    Reglas principales:
+    - nunca permite repetir consecutivamente el mismo estado;
+    - Despacho solo se autoriza si el último estado real es En cuarto frío;
+    - En cuarto frío exige estilo y lote.
+    """
+    valido, mensaje = validar_formato_codigo_barril(codigo)
+    if not valido:
+        return False, mensaje, None
+
+    ultimo = obtener_ultimo_movimiento(df, codigo)
+    estado_nuevo_key = normalizar_clave(nuevo_estado)
+
+    if ultimo is not None and ultimo.get("_estado_key", "") == estado_nuevo_key:
+        cliente_anterior = str(ultimo.get("Cliente", "")).strip()
+        extra = f" para {cliente_anterior}" if cliente_anterior and estado_nuevo_key == "despacho" else ""
+        return (
+            False,
+            f"El último estado del barril ya es '{nuevo_estado}'{extra}. "
+            "El registro repetido fue bloqueado.",
+            ultimo,
+        )
+
+    if estado_nuevo_key == "despacho":
+        if ultimo is None:
+            return (
+                False,
+                "Este barril no tiene historial. Solo se puede despachar un barril cuyo último estado sea 'En cuarto frío'.",
+                None,
+            )
+        if ultimo.get("_estado_key", "") != "en cuarto frio":
+            estado_actual = str(ultimo.get("Estado", "Sin estado")).strip() or "Sin estado"
+            cliente_actual = str(ultimo.get("Cliente", "")).strip()
+            detalle_cliente = f" (cliente: {cliente_actual})" if cliente_actual else ""
+            return (
+                False,
+                f"No se puede despachar. El estado actual es '{estado_actual}'{detalle_cliente}; "
+                "debe estar actualmente en 'En cuarto frío'.",
+                ultimo,
+            )
+
+    if estado_nuevo_key == "en cuarto frio":
+        if not str(estilo).strip():
+            return False, "Debes seleccionar el estilo para ingresar el barril al cuarto frío.", ultimo
+        if not str(lote).strip():
+            return False, "Debes ingresar el lote para ingresar el barril al cuarto frío.", ultimo
+
+    return True, "", ultimo
+
+
+def construir_huella_operacion(datos):
+    serializado = json.dumps(datos, ensure_ascii=False, sort_keys=True, default=str)
+    return hashlib.sha256(serializado.encode("utf-8")).hexdigest()
+
+
+def obtener_operacion_id_para_huella(huella):
+    op_anterior = st.session_state.get("movimiento_operacion_id", "")
+    huella_anterior = st.session_state.get("movimiento_huella", "")
+    if op_anterior and huella_anterior == huella:
+        return op_anterior
+    nuevo = uuid.uuid4().hex
+    st.session_state.movimiento_operacion_id = nuevo
+    st.session_state.movimiento_huella = huella
+    return nuevo
+
+
+def limpiar_operacion_pendiente():
+    st.session_state.pop("movimiento_operacion_id", None)
+    st.session_state.pop("movimiento_huella", None)
+
+
+def movimiento_local_reciente(codigo, estado, segundos=600):
+    """Capa adicional para cubrir el retraso con que Google Forms refleja una respuesta."""
+    if not codigo:
+        return False
+    confirmados = st.session_state.get("movimientos_confirmados_localmente", {})
+    llave = f"{normalizar_codigo_barril(codigo)}|{normalizar_clave(estado)}"
+    registro = confirmados.get(llave)
+    if not registro:
+        return False
+    return (time.time() - float(registro.get("momento", 0))) <= segundos
+
+
+def marcar_movimiento_local_confirmado(codigo, estado, operacion_id):
+    if not codigo:
+        return
+    confirmados = dict(st.session_state.get("movimientos_confirmados_localmente", {}))
+    ahora = time.time()
+    confirmados = {
+        k: v for k, v in confirmados.items()
+        if ahora - float(v.get("momento", 0)) <= 1800
+    }
+    llave = f"{normalizar_codigo_barril(codigo)}|{normalizar_clave(estado)}"
+    confirmados[llave] = {"momento": ahora, "operacion_id": operacion_id}
+    st.session_state.movimientos_confirmados_localmente = confirmados
+
+
+def enviar_backend_apps_script(payload):
+    """Envía una operación atómica. El Apps Script vuelve a validar bajo LockService."""
+    cuerpo = dict(payload)
+    cuerpo["token"] = APPS_SCRIPT_MOVIMIENTOS_TOKEN
+    cuerpo["accion"] = "registrar_movimiento"
+    try:
+        respuesta = requests.post(
+            APPS_SCRIPT_MOVIMIENTOS_URL,
+            json=cuerpo,
+            timeout=45,
+        )
+    except requests.RequestException as exc:
+        return False, f"No se recibió respuesta del servidor seguro: {exc}", True, {}
+
+    try:
+        datos = respuesta.json()
+    except ValueError:
+        return (
+            False,
+            f"El servidor seguro devolvió una respuesta no válida (HTTP {respuesta.status_code}).",
+            respuesta.status_code >= 500,
+            {},
+        )
+
+    if datos.get("ok"):
+        mensaje = datos.get("message") or "Operación registrada correctamente."
+        return True, mensaje, False, datos
+
+    mensaje = datos.get("message") or "La operación fue rechazada por el servidor seguro."
+    reintentable = bool(datos.get("retryable", False))
+    return False, mensaje, reintentable, datos
+
+
+def esperar_confirmacion_operacion_formulario(operacion_id, intentos=3, pausa=2):
+    for _ in range(intentos):
+        time.sleep(pausa)
+        try:
+            datos = cargar_datos_barriles_frescos()
+        except Exception:
+            continue
+        if operacion_ya_registrada(datos, operacion_id):
+            return True
+    return False
+
+
+def enviar_por_formularios_compatibilidad(payload):
+    """
+    Modo compatible con la app antigua. Evita dobles clics por sesión e incluye un ID
+    en Observaciones, pero no sustituye el bloqueo transaccional de Apps Script.
+    """
+    operacion_id = payload["operacion_id"]
+    codigo = payload.get("codigo", "")
+    registrar_barril = bool(codigo)
+
+    if registrar_barril:
+        try:
+            datos = cargar_datos_barriles_frescos()
+            if operacion_ya_registrada(datos, operacion_id):
+                return True, "La operación ya estaba registrada; no se volvió a enviar.", False, {"duplicate": True}
+        except Exception:
+            pass
+
+        observaciones = str(payload.get("observaciones", "")).strip()
+        etiqueta = f"[OP:{operacion_id}]"
+        observaciones_con_id = f"{observaciones}\n{etiqueta}".strip()
+        datos_formulario = {
+            "entry.311770370": codigo,
+            "entry.1283669263": payload.get("estilo", ""),
+            "entry.1545499818": payload.get("estado", ""),
+            "entry.91059345": payload.get("cliente", ""),
+            "entry.1661747572": payload.get("responsable", ""),
+            "entry.1465957833": observaciones_con_id,
+            "entry.1234567890": payload.get("lote", "") if payload.get("estado") in ["Despacho", "En cuarto frío"] else "",
+            "entry.1122334455": payload.get("incluye_latas", "No"),
+            "entry.1437332932": payload.get("lote", ""),
+        }
+        try:
+            respuesta = requests.post(FORM_BARRILES_URL, data=datos_formulario, timeout=25)
+        except requests.RequestException as exc:
+            if esperar_confirmacion_operacion_formulario(operacion_id):
+                return True, "El registro sí llegó a Google Sheets y no se duplicó.", False, {"verified_after_error": True}
+            return False, f"No se pudo confirmar si Google recibió el barril: {exc}", True, {}
+
+        if respuesta.status_code not in (200, 302):
+            return False, f"Google Forms rechazó el barril (HTTP {respuesta.status_code}).", False, {}
+
+    errores_latas = []
+    for indice, item in enumerate(payload.get("latas", []), start=1):
+        datos_latas = {
+            "entry.457965266": str(item["cantidad"]),
+            "entry.689047838": item["estilo"],
+            "entry.2096096606": item["lote"],
+            "entry.1478892985": payload.get("cliente", ""),
+            "entry.1774006398": payload.get("responsable", ""),
+            "entry.1179145668": "Despacho",
+        }
+        try:
+            respuesta_latas = requests.post(FORM_LATAS_URL, data=datos_latas, timeout=25)
+        except requests.RequestException as exc:
+            errores_latas.append(f"Orden {indice}: {exc}")
+            continue
+        if respuesta_latas.status_code not in (200, 302):
+            errores_latas.append(f"Orden {indice}: HTTP {respuesta_latas.status_code}")
+
+    if errores_latas:
+        return (
+            False,
+            "El barril pudo quedar registrado, pero fallaron órdenes de latas: " + "; ".join(errores_latas),
+            True,
+            {"partial": registrar_barril},
+        )
+
+    return True, "Operación registrada correctamente.", False, {}
+
+
+def solicitar_guardado_movimiento():
+    """Callback: el primer clic bloquea inmediatamente cualquier clic posterior."""
+    if not st.session_state.get("movimiento_guardando", False):
+        st.session_state.movimiento_guardando = True
+        st.session_state.movimiento_solicitado = True
+
+
+def guardar_resultado_y_reiniciar(tipo, mensaje, detalles=None, conservar_operacion=False):
+    st.session_state.resultado_movimiento = {
+        "tipo": tipo,
+        "mensaje": mensaje,
+        "detalles": detalles or [],
+    }
+    st.session_state.movimiento_guardando = False
+    st.session_state.movimiento_solicitado = False
+    if not conservar_operacion:
+        limpiar_operacion_pendiente()
+    st.rerun()
+
+
+def limpiar_widgets_movimiento():
+    claves = [
+        "mov_codigo_despacho", "mov_codigo_manual", "mov_lote", "mov_estilo",
+        "mov_observaciones", "incluye_latas_despacho"
+    ]
+    cantidad_ordenes = int(st.session_state.get("num_latas", 1))
+    for indice in range(cantidad_ordenes):
+        claves.extend(
+            [f"estilo_lata_{indice}", f"lote_lata_{indice}", f"cantidad_lata_{indice}"]
+        )
+    for clave in claves:
+        st.session_state.pop(clave, None)
+    st.session_state.num_latas = 1
+
 # --- Lista de estilos global ---
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
@@ -257,118 +679,170 @@ import requests
 # ---------- TÍTULO ----------
 st.markdown("<h2 style='color:#fff3aa;'>📋🛢️ Registro Movimiento Barriles</h2>", unsafe_allow_html=True)
 
-# ---------- SELECCIÓN ESTADO DEL BARRIL ----------
-estado_barril = st.selectbox("Estado del barril", ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"])
+# ---------- RESULTADO DEL ÚLTIMO INTENTO ----------
+resultado_anterior = st.session_state.pop("resultado_movimiento", None)
+if resultado_anterior:
+    tipo = resultado_anterior.get("tipo", "info")
+    mensaje = resultado_anterior.get("mensaje", "")
+    if tipo == "success":
+        st.success(f"✅ {mensaje}")
+    elif tipo == "warning":
+        st.warning(f"⚠️ {mensaje}")
+    else:
+        st.error(f"❌ {mensaje}")
+    for detalle in resultado_anterior.get("detalles", []):
+        st.write(f"• {detalle}")
 
-# ---------- INGRESO CÓDIGO DEL BARRIL ----------
+if BACKEND_SEGURO_ACTIVO:
+    st.success("🔒 Protección transaccional activa: bloqueo simultáneo e idempotencia habilitados.")
+else:
+    st.warning(
+        "🟡 Protección local activa. Para impedir también choques entre usuarios o pestañas distintas, "
+        "configura el Apps Script incluido con esta versión."
+    )
+
+# ---------- ESTADO Y DATOS ACTUALES DE BARRILES ----------
+if "movimiento_guardando" not in st.session_state:
+    st.session_state.movimiento_guardando = False
+if "movimiento_solicitado" not in st.session_state:
+    st.session_state.movimiento_solicitado = False
+
+estado_barril = st.selectbox(
+    "Estado del barril",
+    ["Despacho", "Lavado en bodega", "Sucio", "En cuarto frío"],
+    key="mov_estado",
+    disabled=st.session_state.movimiento_guardando,
+)
+
+try:
+    datos_barriles_ui = cargar_datos_barriles_ui()
+    ultimos_barriles_ui = obtener_ultimos_movimientos(datos_barriles_ui)
+except Exception as exc:
+    datos_barriles_ui = pd.DataFrame()
+    ultimos_barriles_ui = pd.DataFrame()
+    st.error(f"No fue posible consultar el estado actual de los barriles: {exc}")
+
 codigo_barril = ""
-if estado_barril:
-    etiqueta_codigo = "Código del barril (Debe tener 5 dígitos y empezar por 20, 30 o 58)"
-    ayuda_codigo = None
-
-    if estado_barril == "Despacho":
-        etiqueta_codigo = "Código del barril (opcional si el despacho es solo de latas)"
-        ayuda_codigo = (
-            "Déjalo vacío cuando el pedido contenga únicamente latas. "
-            "Si también sale un barril, ingresa su código."
-        )
-
-    codigo_barril = st.text_input(
-        etiqueta_codigo,
-        value="",
-        help=ayuda_codigo,
-    ).strip()
-
-    if estado_barril == "Despacho":
-        st.caption("Para un despacho exclusivo de latas no es necesario ingresar un barril.")
-
-# ---------- INGRESO DE LOTE Y ESTILO SI ESTÁ EN CUARTO FRÍO ----------
 lote_producto = ""
 estilo_cerveza = ""
+ultimo_ui = None
+
+if estado_barril == "Despacho":
+    cuarto_frio_ui = barriles_actualmente_en_cuarto_frio(datos_barriles_ui)
+    cuarto_frio_ui.sort_values(["Estilo", "Código"], inplace=True, ignore_index=True)
+    mapa_barriles = {
+        fila["Código"]: {
+            "estilo": fila["Estilo"],
+            "lote": fila["Lote"],
+        }
+        for _, fila in cuarto_frio_ui.iterrows()
+    }
+    opciones = [""] + list(mapa_barriles.keys())
+    if st.session_state.get("mov_codigo_despacho", "") not in opciones:
+        st.session_state.mov_codigo_despacho = ""
+
+    codigo_barril = st.selectbox(
+        "Barril a despachar",
+        opciones,
+        key="mov_codigo_despacho",
+        format_func=lambda codigo: (
+            "— Sin barril: despacho exclusivo de latas —"
+            if codigo == ""
+            else (
+                f"{codigo} — {mapa_barriles[codigo]['estilo'] or 'Sin estilo'}"
+                f" — lote {mapa_barriles[codigo]['lote'] or 'sin lote'}"
+            )
+        ),
+        disabled=st.session_state.movimiento_guardando,
+        help="La lista contiene únicamente barriles cuyo último estado es En cuarto frío.",
+    )
+
+    if codigo_barril:
+        datos_seleccionados = mapa_barriles[codigo_barril]
+        estilo_cerveza = datos_seleccionados["estilo"]
+        lote_producto = datos_seleccionados["lote"]
+        ultimo_ui = obtener_ultimo_movimiento(datos_barriles_ui, codigo_barril)
+        st.success(
+            f"✅ Disponible para despacho: {codigo_barril} · "
+            f"{estilo_cerveza or 'Sin estilo'} · lote {lote_producto or 'sin lote'}"
+        )
+    elif cuarto_frio_ui.empty:
+        st.info("No hay barriles actualmente disponibles en cuarto frío. Aún puedes despachar solo latas.")
+else:
+    codigo_barril = st.text_input(
+        "Código del barril (5 dígitos; inicia por 20, 30 o 58)",
+        key="mov_codigo_manual",
+        disabled=st.session_state.movimiento_guardando,
+    ).strip()
+    if codigo_barril:
+        ultimo_ui = obtener_ultimo_movimiento(datos_barriles_ui, codigo_barril)
+        if ultimo_ui is not None:
+            st.caption(
+                f"Último estado registrado: {ultimo_ui['Estado'] or 'Sin estado'}"
+                + (f" · cliente: {ultimo_ui['Cliente']}" if ultimo_ui["Cliente"] else "")
+            )
+            if normalizar_clave(ultimo_ui["Estado"]) == normalizar_clave(estado_barril):
+                st.error(f"🚫 Este barril ya tiene como último estado '{estado_barril}'.")
+        else:
+            st.caption("El código no tiene movimientos anteriores registrados.")
 
 if estado_barril == "En cuarto frío":
-    lote_producto = st.text_input("Lote del producto (9 dígitos - formato DDMMYYXXX)")
-    estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout", "Session IPA", "IPA", "Maracuyá",
-               "Barley Wine", "Trigo", "Catharina Sour", "Gose", "Imperial IPA", "NEIPA", "Imperial Stout", "Otros"]
-    estilo_cerveza = st.selectbox("Estilo", estilos)
+    lote_producto = st.text_input(
+        "Lote del producto",
+        key="mov_lote",
+        disabled=st.session_state.movimiento_guardando,
+    ).strip()
+    estilo_cerveza = st.selectbox(
+        "Estilo",
+        estilos,
+        key="mov_estilo",
+        disabled=st.session_state.movimiento_guardando,
+    )
 
-# ---------- AUTOCOMPLETAR LOTE Y ESTILO + CONTROL DE CICLO SI EL ESTADO ES DESPACHO ----------
-if estado_barril == "Despacho" and codigo_barril:
-    try:
-        url_datos = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=DatosM"
-        df_datos = pd.read_csv(url_datos)
-
-        # Limpieza de columnas
-        df_datos.columns = df_datos.columns.str.strip()
-
-        # Convertir 'Código' a string sin decimales (eliminar .0)
-        if "Código" in df_datos.columns:
-            df_datos["Código"] = df_datos["Código"].apply(lambda x: str(int(float(x))) if pd.notnull(x) else "").str.strip()
-
-        # Asegurarse de que Estado también esté limpio
-        if "Estado" in df_datos.columns:
-            df_datos["Estado"] = df_datos["Estado"].astype(str).str.strip()
-
-        # ➕ Validar si el último estado de ese barril fue "Despacho"
-        historial_barril = df_datos[df_datos["Código"] == codigo_barril]
-        if not historial_barril.empty:
-            ultimo_estado = historial_barril.iloc[-1]["Estado"]
-
-            if ultimo_estado == "Despacho":
-                st.error("🚫 Este barril ya fue despachado previamente. Debe pasar primero por 'Lavado en bodega' antes de volver a despacharse.")
-            else:
-                # Autocompletar Lote y Estilo si hay registros previos en "En cuarto frío"
-                df_cuarto_frio = historial_barril[historial_barril["Estado"] == "En cuarto frío"]
-                if not df_cuarto_frio.empty:
-                    ultimo_cf = df_cuarto_frio.iloc[-1]
-                    lote_producto = ultimo_cf.get("Lote", "No disponible")
-                    estilo_cerveza = ultimo_cf.get("Estilo", "No disponible")
-                    st.success(f"✅ Lote asignado automáticamente: {lote_producto}")
-                    st.success(f"✅ Estilo asignado automáticamente: {estilo_cerveza}")
-                else:
-                    st.warning("⚠️ No se encontró un registro anterior en 'En cuarto frío' para este barril. Se asignó 'No disponible'.")
-                    lote_producto = "No disponible"
-                    estilo_cerveza = "No disponible"
-        else:
-            st.warning("⚠️ Este barril no tiene historial previo. Se permitirá el despacho inicial.")
-            lote_producto = "No disponible"
-            estilo_cerveza = "No disponible"
-
-    except Exception as e:
-        st.warning(f"⚠️ No se pudo consultar registros previos: {e}")
-        lote_producto = "No disponible"
-        estilo_cerveza = "No disponible"
-
-
-# ---------- AJUSTE: CAMBIAR ESTADO A 'Vacío' si se selecciona 'Sucio' o 'Lavado en bodega' ----------
-estado_para_guardar = estado_barril
-if estado_barril in ["Sucio", "Lavado en bodega"]:
-    estado_para_guardar = "Vacío"
-    st.info("ℹ️ Estado registrado como Vacío para este barril.")
-
-# ---------- CARGAR CLIENTES DESDE GOOGLE SHEETS ----------
+# ---------- CLIENTES ----------
 try:
-    url_clientes = "https://docs.google.com/spreadsheets/d/1FjQ8XBDwDdrlJZsNkQ6YyaygkHLhpKmfLBv6wd3uluY/gviz/tq?tqx=out:csv&sheet=Rclientes"
-    df_clientes = pd.read_csv(url_clientes)
-    df_clientes.columns = df_clientes.columns.str.strip()
-    df_clientes.dropna(subset=["Nombre"], inplace=True)
-    df_clientes = df_clientes[df_clientes["Nombre"].str.strip() != ""]
-    lista_clientes = df_clientes["Nombre"].dropna().astype(str).tolist()
-    dict_direcciones = df_clientes.set_index("Nombre")["Dirección"].to_dict()
-except Exception as e:
+    df_clientes = cargar_hoja_csv(HOJA_CLIENTES).copy()
+    df_clientes.columns = df_clientes.columns.astype(str).str.strip()
+    if "Nombre" not in df_clientes.columns:
+        raise ValueError("La hoja RClientes no contiene la columna Nombre.")
+    df_clientes["Nombre"] = df_clientes["Nombre"].fillna("").astype(str).str.strip()
+    df_clientes = df_clientes[df_clientes["Nombre"].ne("")]
+    lista_clientes = df_clientes["Nombre"].drop_duplicates().tolist()
+    if "Dirección" in df_clientes.columns:
+        dict_direcciones = df_clientes.drop_duplicates("Nombre").set_index("Nombre")["Dirección"].to_dict()
+    else:
+        dict_direcciones = {}
+except Exception as exc:
     lista_clientes = []
     dict_direcciones = {}
-    st.warning(f"⚠️ No se pudieron cargar los clientes: {e}")
+    if estado_barril == "Despacho":
+        st.warning(f"No se pudieron cargar los clientes: {exc}")
 
-# ---------- SELECCIÓN DE CLIENTE Y AUTOCOMPLETADO DE DIRECCIÓN ----------
 cliente = "Planta Castiza"
-direccion_cliente = ""
-if estado_barril == "Despacho" and lista_clientes:
-    cliente = st.selectbox("Cliente", lista_clientes)
-    direccion_cliente = dict_direcciones.get(cliente, "")
-    st.text_input("Dirección del cliente", value=direccion_cliente, disabled=True)
+if estado_barril == "Despacho":
+    if lista_clientes:
+        cliente = st.selectbox(
+            "Cliente",
+            lista_clientes,
+            key="mov_cliente",
+            disabled=st.session_state.movimiento_guardando,
+        )
+        direccion_cliente = dict_direcciones.get(cliente, "")
+        if direccion_cliente:
+            st.text_input(
+                "Dirección del cliente",
+                value=str(direccion_cliente),
+                disabled=True,
+                key="mov_direccion_cliente",
+            )
+    else:
+        cliente = st.text_input(
+            "Cliente",
+            key="mov_cliente_manual",
+            disabled=st.session_state.movimiento_guardando,
+        ).strip()
 
-# ---------- DESPACHO DE LATAS CON INVENTARIO POR ESTILO Y LOTE ----------
+# ---------- DESPACHO DE LATAS ----------
 latas = []
 errores_configuracion_latas = []
 inventario_latas = pd.DataFrame()
@@ -379,6 +853,7 @@ if estado_barril == "Despacho":
         "¿🚚 Incluye despacho de latas?",
         ["No", "Sí"],
         key="incluye_latas_despacho",
+        disabled=st.session_state.movimiento_guardando,
     )
 
     if incluye_latas == "Sí":
@@ -387,14 +862,18 @@ if estado_barril == "Despacho":
             unsafe_allow_html=True,
         )
 
-        if st.button("🔄 Actualizar inventario de latas", key="actualizar_inventario_latas"):
+        if st.button(
+            "🔄 Actualizar inventario de latas",
+            key="actualizar_inventario_latas",
+            disabled=st.session_state.movimiento_guardando,
+        ):
             cargar_hoja_csv.clear()
             st.rerun()
 
         try:
             inventario_latas = calcular_inventario_latas()
-        except Exception as e:
-            st.error(f"❌ No se pudo calcular el inventario de latas: {e}")
+        except Exception as exc:
+            st.error(f"❌ No se pudo calcular el inventario de latas: {exc}")
             errores_configuracion_latas.append("No fue posible consultar el inventario de latas.")
 
         if inventario_latas.empty:
@@ -404,14 +883,10 @@ if estado_barril == "Despacho":
             resumen_estilos = (
                 inventario_latas.groupby("Estilo", as_index=False)["Disponible"]
                 .sum()
-                .sort_values("Estilo", key=lambda s: s.astype(str).str.casefold())
+                .sort_values("Estilo", key=lambda serie: serie.astype(str).str.casefold())
             )
             st.caption("Existencias actuales por estilo")
-            st.dataframe(
-                resumen_estilos,
-                hide_index=True,
-                use_container_width=True,
-            )
+            st.dataframe(resumen_estilos, hide_index=True, use_container_width=True)
 
             if "num_latas" not in st.session_state:
                 st.session_state.num_latas = 1
@@ -420,23 +895,23 @@ if estado_barril == "Despacho":
             opcion_vacia_estilo = "— Selecciona un estilo —"
             opcion_vacia_lote = "— Selecciona un lote —"
 
-            for i in range(st.session_state.num_latas):
-                st.markdown(f"### Orden {i + 1}")
-
+            for indice in range(st.session_state.num_latas):
+                st.markdown(f"### Orden {indice + 1}")
                 estilo_lata = st.selectbox(
-                    f"Estilo de cerveza (Orden {i + 1})",
+                    f"Estilo de cerveza (Orden {indice + 1})",
                     [opcion_vacia_estilo] + estilos_disponibles,
-                    key=f"estilo_lata_{i}",
+                    key=f"estilo_lata_{indice}",
+                    disabled=st.session_state.movimiento_guardando,
                 )
 
                 if estilo_lata == opcion_vacia_estilo:
                     errores_configuracion_latas.append(
-                        f"Selecciona el estilo de la orden {i + 1}."
+                        f"Selecciona el estilo de la orden {indice + 1}."
                     )
                     st.selectbox(
-                        f"Lote disponible (Orden {i + 1})",
+                        f"Lote disponible (Orden {indice + 1})",
                         [opcion_vacia_lote],
-                        key=f"lote_lata_{i}",
+                        key=f"lote_lata_{indice}",
                         disabled=True,
                     )
                     continue
@@ -449,62 +924,58 @@ if estado_barril == "Despacho":
                     for fila in inventario_estilo.itertuples(index=False)
                 }
                 lotes_disponibles = list(disponibilidad_por_lote.keys())
-
                 lote_lata = st.selectbox(
-                    f"Lote disponible (Orden {i + 1})",
+                    f"Lote disponible (Orden {indice + 1})",
                     [opcion_vacia_lote] + lotes_disponibles,
                     format_func=lambda lote, mapa=disponibilidad_por_lote: (
-                        lote
-                        if lote == opcion_vacia_lote
+                        lote if lote == opcion_vacia_lote
                         else f"{lote} — {mapa[lote]} latas disponibles"
                     ),
-                    key=f"lote_lata_{i}",
+                    key=f"lote_lata_{indice}",
+                    disabled=st.session_state.movimiento_guardando,
                 )
 
                 if lote_lata == opcion_vacia_lote:
                     errores_configuracion_latas.append(
-                        f"Selecciona el lote de la orden {i + 1}."
+                        f"Selecciona el lote de la orden {indice + 1}."
                     )
                     continue
 
                 disponible_lote = disponibilidad_por_lote[lote_lata]
-                cantidad_key = f"cantidad_lata_{i}"
-
-                # Ajusta el valor guardado si el usuario cambia a un lote con menos inventario.
+                cantidad_key = f"cantidad_lata_{indice}"
                 if cantidad_key in st.session_state:
                     cantidad_actual = int(st.session_state[cantidad_key])
-                    if cantidad_actual < 1:
-                        st.session_state[cantidad_key] = 1
-                    elif cantidad_actual > disponible_lote:
-                        st.session_state[cantidad_key] = disponible_lote
+                    st.session_state[cantidad_key] = min(max(cantidad_actual, 1), disponible_lote)
 
                 cantidad = st.number_input(
-                    f"Cantidad (Orden {i + 1})",
+                    f"Cantidad (Orden {indice + 1})",
                     min_value=1,
                     max_value=disponible_lote,
                     step=1,
                     key=cantidad_key,
+                    disabled=st.session_state.movimiento_guardando,
                     help=f"Máximo disponible para este lote: {disponible_lote}",
                 )
-
                 latas.append(
-                    {
-                        "cantidad": int(cantidad),
-                        "estilo": estilo_lata,
-                        "lote": lote_lata,
-                    }
+                    {"cantidad": int(cantidad), "estilo": estilo_lata, "lote": lote_lata}
                 )
-                st.caption(f"Disponible en el lote seleccionado: {disponible_lote} latas")
 
-            col_agregar, col_quitar = st.columns(2)
-            if col_agregar.button("➕ Agregar otro lote", key="agregar_orden_latas"):
+            columnas_orden = st.columns(2)
+            if columnas_orden[0].button(
+                "➕ Agregar otro lote",
+                key="agregar_orden_latas",
+                disabled=st.session_state.movimiento_guardando,
+            ):
                 st.session_state.num_latas += 1
                 st.rerun()
 
-            if col_quitar.button(
+            if columnas_orden[1].button(
                 "➖ Quitar última orden",
                 key="quitar_orden_latas",
-                disabled=st.session_state.num_latas <= 1,
+                disabled=(
+                    st.session_state.movimiento_guardando
+                    or st.session_state.num_latas <= 1
+                ),
             ):
                 indice = st.session_state.num_latas - 1
                 for prefijo in ("estilo_lata_", "lote_lata_", "cantidad_lata_"):
@@ -513,14 +984,37 @@ if estado_barril == "Despacho":
                 st.rerun()
 
 # ---------- RESPONSABLE Y OBSERVACIONES ----------
-responsables = ["Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez", "Yimer Luna", "Operario 2"]
-responsable = st.selectbox("Responsable", responsables)
-observaciones = st.text_area("Observaciones")
+responsables = [
+    "Pepe Vallejo", "Ligia Cajigas", "Erika Martinez", "Marcelo Martinez",
+    "Yimer Luna", "Operario 2"
+]
+responsable = st.selectbox(
+    "Responsable",
+    responsables,
+    key="mov_responsable",
+    disabled=st.session_state.movimiento_guardando,
+)
+observaciones = st.text_area(
+    "Observaciones",
+    key="mov_observaciones",
+    disabled=st.session_state.movimiento_guardando,
+)
 
-# ---------- GUARDAR FORMULARIO ----------
-if st.button("Guardar Registro"):
+st.caption(
+    "Al presionar Guardar, el botón se bloquea hasta terminar. No es necesario volver a hacer clic aunque la conexión esté lenta."
+)
+st.button(
+    "🔒 Guardar Registro",
+    key="guardar_movimiento_principal",
+    type="primary",
+    use_container_width=True,
+    disabled=st.session_state.movimiento_guardando,
+    on_click=solicitar_guardado_movimiento,
+)
+
+# ---------- PROCESAR EXACTAMENTE UNA VEZ POR CLIC ----------
+if st.session_state.get("movimiento_solicitado", False):
     errores_guardado = []
-
     registrar_barril = bool(codigo_barril.strip())
     despacho_solo_latas = (
         estado_barril == "Despacho"
@@ -528,121 +1022,122 @@ if st.button("Guardar Registro"):
         and not registrar_barril
     )
 
-    # El código solo deja de ser obligatorio cuando se despachan exclusivamente latas.
     if not registrar_barril and not despacho_solo_latas:
         errores_guardado.append(
-            "Debes ingresar un código de barril. "
-            "Solo puedes dejarlo vacío cuando el despacho sea exclusivamente de latas."
+            "Debes seleccionar o ingresar un barril. Solo puede quedar vacío en un despacho exclusivo de latas."
         )
+
+    if estado_barril == "Despacho" and not str(cliente).strip():
+        errores_guardado.append("Debes seleccionar o ingresar el cliente del despacho.")
+
+    datos_barriles_frescos = pd.DataFrame()
+    ultimo_fresco = None
+    if registrar_barril:
+        try:
+            cargar_datos_barriles_ui.clear()
+            datos_barriles_frescos = cargar_datos_barriles_frescos()
+        except Exception as exc:
+            errores_guardado.append(
+                f"No se pudo verificar el estado actual del barril. No se registró nada: {exc}"
+            )
+        else:
+            valido, mensaje, ultimo_fresco = validar_movimiento_barril_local(
+                datos_barriles_frescos,
+                codigo_barril,
+                estado_barril,
+                estilo=estilo_cerveza,
+                lote=lote_producto,
+            )
+            if not valido:
+                errores_guardado.append(mensaje)
+
+            if movimiento_local_reciente(codigo_barril, estado_barril):
+                errores_guardado.append(
+                    "Este mismo movimiento fue confirmado recientemente en esta sesión. "
+                    "Se bloqueó para evitar un duplicado mientras Google actualiza la hoja."
+                )
+
+            if estado_barril == "Despacho" and ultimo_fresco is not None:
+                estilo_cerveza = str(ultimo_fresco.get("Estilo", "")).strip()
+                lote_producto = str(ultimo_fresco.get("Lote", "")).strip()
 
     inventario_actual = inventario_latas
     if incluye_latas == "Sí":
         errores_guardado.extend(errores_configuracion_latas)
-
-        # Reconsulta el Sheet justo antes de guardar para reducir el riesgo de usar datos antiguos.
         if not errores_configuracion_latas:
             try:
                 cargar_hoja_csv.clear()
                 inventario_actual = calcular_inventario_latas()
                 errores_guardado.extend(validar_existencias_latas(latas, inventario_actual))
-            except Exception as e:
-                errores_guardado.append(f"No fue posible validar el inventario actualizado: {e}")
+            except Exception as exc:
+                errores_guardado.append(
+                    f"No fue posible validar el inventario actualizado de latas: {exc}"
+                )
 
     if errores_guardado:
-        for error in dict.fromkeys(errores_guardado):
-            st.error(f"⚠️ {error}")
+        guardar_resultado_y_reiniciar(
+            "error",
+            "La operación fue bloqueada y no se registró ningún movimiento.",
+            list(dict.fromkeys(errores_guardado)),
+            conservar_operacion=False,
+        )
+
+    datos_huella = {
+        "codigo": codigo_barril,
+        "estado": estado_barril,
+        "cliente": cliente,
+        "responsable": responsable,
+        "observaciones": observaciones,
+        "lote": lote_producto,
+        "estilo": estilo_cerveza,
+        "incluye_latas": incluye_latas,
+        "latas": latas,
+    }
+    huella = construir_huella_operacion(datos_huella)
+    operacion_id = obtener_operacion_id_para_huella(huella)
+    payload_seguro = dict(datos_huella)
+    payload_seguro["operacion_id"] = operacion_id
+
+    with st.spinner("Validando y registrando. No cierres la página ni vuelvas a presionar el botón..."):
+        if BACKEND_SEGURO_ACTIVO:
+            exito, mensaje, reintentable, respuesta_extra = enviar_backend_apps_script(payload_seguro)
+        else:
+            exito, mensaje, reintentable, respuesta_extra = enviar_por_formularios_compatibilidad(payload_seguro)
+
+    if exito:
+        marcar_movimiento_local_confirmado(codigo_barril, estado_barril, operacion_id)
+        cargar_hoja_csv.clear()
+        cargar_datos_barriles_ui.clear()
+        limpiar_widgets_movimiento()
+        detalle = []
+        if respuesta_extra.get("duplicate"):
+            detalle.append("El servidor reconoció el identificador de operación y evitó reenviarla.")
+        elif registrar_barril and estado_barril == "Despacho":
+            detalle.append(
+                f"Barril {codigo_barril} despachado a {cliente}. Ya no aparecerá entre los barriles de cuarto frío."
+            )
+        guardar_resultado_y_reiniciar(
+            "success",
+            mensaje,
+            detalle,
+            conservar_operacion=False,
+        )
     else:
-        registro_barril_exitoso = not registrar_barril
-        error_envio_barril = ""
+        tipo_resultado = "warning" if reintentable else "error"
+        detalles = []
+        if reintentable:
+            detalles.append(
+                f"Identificador conservado: {operacion_id}. Al reintentar, el servidor no duplicará una operación que ya haya recibido."
+            )
+        guardar_resultado_y_reiniciar(
+            tipo_resultado,
+            mensaje,
+            detalles,
+            conservar_operacion=reintentable,
+        )
 
-        # El formulario principal solo se envía cuando realmente hay un barril.
-        if registrar_barril:
-            form_url = "https://docs.google.com/forms/d/e/1FAIpQLSedFQmZuDdVY_cqU9WdiWCTBWCCh1NosPnD891QifQKqaeUfA/formResponse"
-            payload = {
-                "entry.311770370": codigo_barril,
-                "entry.1283669263": estilo_cerveza,
-                "entry.1545499818": estado_barril,
-                "entry.91059345": cliente,
-                "entry.1661747572": responsable,
-                "entry.1465957833": observaciones,
-                "entry.1234567890": lote_producto if estado_barril in ["Despacho", "En cuarto frío"] else "",
-                "entry.1122334455": incluye_latas,
-                "entry.1437332932": lote_producto,
-            }
-
-            try:
-                response = requests.post(form_url, data=payload, timeout=20)
-            except requests.RequestException as e:
-                error_envio_barril = f"No se pudo enviar el registro del barril: {e}"
-            else:
-                if response.status_code in [200, 302]:
-                    registro_barril_exitoso = True
-                else:
-                    error_envio_barril = (
-                        "Error al enviar el formulario del barril. "
-                        f"Código: {response.status_code}"
-                    )
-
-        if error_envio_barril:
-            st.error(f"❌ {error_envio_barril}")
-            if incluye_latas == "Sí":
-                st.info(
-                    "Las latas no fueron enviadas para evitar que el pedido quede parcialmente registrado."
-                )
-        elif registro_barril_exitoso:
-            errores_envio_latas = []
-
-            if incluye_latas == "Sí":
-                form_latas_url = "https://docs.google.com/forms/d/e/1FAIpQLSerxxOI1npXAptsa3nvNNBFHYBLV9OMMX-4-Xlhz-VOmitRfQ/formResponse"
-
-                for idx, item in enumerate(latas, start=1):
-                    payload_latas = {
-                        "entry.457965266": str(item["cantidad"]),
-                        "entry.689047838": item["estilo"],
-                        "entry.2096096606": item["lote"],
-                        "entry.1478892985": cliente,
-                        "entry.1774006398": responsable,
-                        "entry.1179145668": "Despacho",
-                    }
-
-                    try:
-                        respuesta_latas = requests.post(
-                            form_latas_url,
-                            data=payload_latas,
-                            timeout=20,
-                        )
-                    except requests.RequestException as e:
-                        errores_envio_latas.append(
-                            f"Orden {idx} ({item['estilo']} / {item['lote']}): {e}"
-                        )
-                        continue
-
-                    if respuesta_latas.status_code not in [200, 302]:
-                        errores_envio_latas.append(
-                            f"Orden {idx} ({item['estilo']} / {item['lote']}), "
-                            f"código {respuesta_latas.status_code}"
-                        )
-
-            if errores_envio_latas:
-                if registrar_barril:
-                    st.warning("El barril fue registrado, pero algunas órdenes de latas fallaron:")
-                else:
-                    st.warning("Algunas órdenes de latas no pudieron registrarse:")
-                for error in errores_envio_latas:
-                    st.warning(f"• {error}")
-            else:
-                cargar_hoja_csv.clear()
-
-                if despacho_solo_latas:
-                    st.success("✅ Despacho de latas registrado correctamente, sin barril")
-                elif incluye_latas == "Sí":
-                    st.success("✅ Barril y despacho de latas registrados correctamente")
-                else:
-                    st.success("✅ Registro del barril enviado correctamente")
-
-                if incluye_latas == "Sí":
-                    st.success("✅ El inventario fue descontado por estilo y lote")
-                st.balloons()
+# Mantener la variable utilizada por las secciones inferiores de búsqueda y últimos movimientos.
+url_datos = URL_DATOS_BARRILES_PUBLICA
 
 # FORMULARIO NUEVO CLIENTE
 st.markdown("---")
