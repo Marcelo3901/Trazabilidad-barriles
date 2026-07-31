@@ -697,8 +697,7 @@ if BACKEND_SEGURO_ACTIVO:
     st.success("🔒 Protección transaccional activa: bloqueo simultáneo e idempotencia habilitados.")
 else:
     st.warning(
-        "🟡 Protección local activa. Para impedir también choques entre usuarios o pestañas distintas, "
-        "configura el Apps Script incluido con esta versión."
+        "🟡"
     )
 
 # ---------- ESTADO Y DATOS ACTUALES DE BARRILES ----------
