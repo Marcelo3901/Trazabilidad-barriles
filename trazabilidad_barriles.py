@@ -628,10 +628,12 @@ def limpiar_widgets_movimiento():
     st.session_state.num_latas = 1
 
 
-# ---------- GENERACIÓN AUTOMÁTICA DE ORDEN Y FORMATOS DE DESPACHO ----------
+# ---------- ORDEN ACUMULADA Y FORMATOS DE DESPACHO ----------
 # La plantilla oficial está incorporada dentro de este archivo. No es necesario
 # subir FORMATOS DE DESPACHOS.xlsx al repositorio ni cargarlo desde la interfaz.
-MAX_LINEAS_FORMATO_DESPACHO = 27
+PRODUCTOS_POR_BLOQUE_FORMATO = 3
+MAX_BLOQUES_FORMATO_DESPACHO = 9
+MAX_LINEAS_FORMATO_DESPACHO = PRODUCTOS_POR_BLOQUE_FORMATO * MAX_BLOQUES_FORMATO_DESPACHO
 PLANTILLA_DESPACHO_XLSX_B64 = (
     "UEsDBBQABgAIAAAAIQBrK/rSlgEAAK8GAAATAAgCW0NvbnRlbnRfVHlwZXNdLnhtbCCiBAIooAACAAAAAAAAAAAAAAAAAAAAAAAA"
     "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
@@ -1138,118 +1140,233 @@ def limpiar_area_formatos(ws, tipo):
             ws[celda].value = None
 
 
-def llenar_hoja_pedido_distribucion(
-    ws,
-    items,
-    fecha,
-    cliente,
-    responsable,
-    observaciones,
-):
-    """Diligencia F-TRZ-002 con todos los productos del despacho."""
-    limpiar_area_formatos(ws, "F-TRZ-002")
-    fecha_txt = fecha.strftime("%d/%m/%Y")
 
-    for indice, item in enumerate(items[:MAX_LINEAS_FORMATO_DESPACHO]):
-        fila = 7 + indice
-        fila_grupo = 7 + (indice // 3) * 3
-        if indice % 3 == 0:
-            escribir_valor_formato(ws, f"A{fila_grupo}", fecha_txt)
-            escribir_valor_formato(ws, f"B{fila_grupo}", cliente)
-            escribir_valor_formato(ws, f"G{fila_grupo}", "X")  # Calidad: cumple
-            escribir_valor_formato(ws, f"I{fila_grupo}", "X")  # Limpieza: cumple
-            escribir_valor_formato(ws, f"K{fila_grupo}", observaciones)
-
-        escribir_valor_formato(ws, f"C{fila}", item["Producto"])
-        escribir_valor_formato(ws, f"D{fila}", item["Cantidad"])
-        escribir_valor_formato(ws, f"E{fila}", item["Lote"])
-        escribir_valor_formato(ws, f"F{fila}", item["Código del barril"])
-
-    # Queda listo para la firma de quien realiza y de quien supervisa.
-    escribir_valor_formato(ws, "B35", responsable)
-    escribir_valor_formato(ws, "B36", "")
+def fecha_registro_despacho(despacho):
+    """Convierte la fecha persistida en Session State a datetime."""
+    valor = despacho.get("fecha")
+    if isinstance(valor, datetime):
+        return valor
+    if valor:
+        try:
+            return datetime.fromisoformat(str(valor))
+        except ValueError:
+            pass
+    return datetime.now()
 
 
-def llenar_hoja_orden_entrega(
-    ws,
-    items,
-    fecha,
-    cliente_y_direccion,
-    responsable,
-    observaciones,
-):
-    """Diligencia F-TRZ-003 y deja libre la firma de recibido del cliente."""
-    limpiar_area_formatos(ws, "F-TRZ-003")
-    fecha_txt = fecha.strftime("%d/%m/%Y")
-
-    for indice, item in enumerate(items[:MAX_LINEAS_FORMATO_DESPACHO]):
-        fila = 7 + indice
-        fila_grupo = 7 + (indice // 3) * 3
-        if indice % 3 == 0:
-            escribir_valor_formato(ws, f"A{fila_grupo}", fecha_txt)
-            escribir_valor_formato(ws, f"B{fila_grupo}", cliente_y_direccion)
-            escribir_valor_formato(ws, f"E{fila_grupo}", "X")  # Pedido correcto: sí
-            escribir_valor_formato(ws, f"G{fila_grupo}", observaciones)
-            escribir_valor_formato(ws, f"H{fila_grupo}", "")  # Firma de recibido
-
-        escribir_valor_formato(ws, f"C{fila}", item["Producto"])
-        escribir_valor_formato(ws, f"D{fila}", item["Cantidad"])
-
-    escribir_valor_formato(ws, "B34", responsable)
-    escribir_valor_formato(ws, "B35", "")
-
-
-def generar_formatos_despacho_excel(
+def crear_despacho_para_orden(
     items,
     cliente,
     direccion,
     responsable,
     observaciones,
+    operacion_id,
     fecha=None,
-    operacion_id="",
 ):
-    """Genera los dos formatos oficiales completamente diligenciados."""
-    if not items:
-        raise ValueError("No hay productos confirmados para generar la orden.")
-    if len(items) > MAX_LINEAS_FORMATO_DESPACHO:
-        raise ValueError(
-            f"El formato permite máximo {MAX_LINEAS_FORMATO_DESPACHO} líneas de producto. "
-            f"Actualmente hay {len(items)} líneas."
+    """Crea una copia estable del despacho confirmado para la orden acumulada."""
+    fecha = fecha or datetime.now()
+    items_limpios = []
+    for item in items or []:
+        items_limpios.append(
+            {
+                "Tipo": str(item.get("Tipo", "")).strip(),
+                "Producto": str(item.get("Producto", "")).strip(),
+                "Cantidad": int(item.get("Cantidad", 0) or 0),
+                "Lote": str(item.get("Lote", "")).strip(),
+                "Código del barril": str(item.get("Código del barril", "")).strip(),
+            }
         )
 
+    return {
+        "operacion_id": str(operacion_id or uuid.uuid4().hex),
+        "fecha": fecha.isoformat(timespec="seconds"),
+        "cliente": str(cliente or "").strip(),
+        "direccion": str(direccion or "").strip(),
+        "responsable": str(responsable or "").strip(),
+        "observaciones": str(observaciones or "").strip(),
+        "items": items_limpios,
+    }
+
+
+def obtener_despachos_pendientes_orden():
+    """Devuelve la tanda confirmada que aún no se ha convertido en orden."""
+    pendientes = st.session_state.get("despachos_pendientes_orden", [])
+    if not isinstance(pendientes, list):
+        pendientes = []
+        st.session_state.despachos_pendientes_orden = pendientes
+    return pendientes
+
+
+def agregar_despacho_pendiente_orden(despacho):
+    """Agrega un despacho confirmado una sola vez, usando Operación ID como llave."""
+    pendientes = list(obtener_despachos_pendientes_orden())
+    operacion_id = str(despacho.get("operacion_id", "")).strip()
+    if operacion_id and any(
+        str(item.get("operacion_id", "")).strip() == operacion_id
+        for item in pendientes
+    ):
+        return False
+    pendientes.append(despacho)
+    st.session_state.despachos_pendientes_orden = pendientes
+    return True
+
+
+def dividir_en_grupos(lista, tamano=3):
+    return [lista[indice:indice + tamano] for indice in range(0, len(lista), tamano)]
+
+
+def bloques_requeridos_despacho(items):
+    cantidad = len(items or [])
+    if cantidad <= 0:
+        return 0
+    return (cantidad + PRODUCTOS_POR_BLOQUE_FORMATO - 1) // PRODUCTOS_POR_BLOQUE_FORMATO
+
+
+def construir_bloques_formatos(despachos):
+    """Convierte cada despacho en uno o más bloques oficiales de tres productos."""
+    bloques = []
+    for numero_despacho, despacho in enumerate(despachos or [], start=1):
+        items = list(despacho.get("items", []) or [])
+        for numero_parte, grupo in enumerate(
+            dividir_en_grupos(items, PRODUCTOS_POR_BLOQUE_FORMATO),
+            start=1,
+        ):
+            bloques.append(
+                {
+                    "numero_despacho": numero_despacho,
+                    "numero_parte": numero_parte,
+                    "fecha": fecha_registro_despacho(despacho),
+                    "cliente": str(despacho.get("cliente", "")).strip(),
+                    "direccion": str(despacho.get("direccion", "")).strip(),
+                    "responsable": str(despacho.get("responsable", "")).strip(),
+                    "observaciones": str(despacho.get("observaciones", "")).strip(),
+                    "operacion_id": str(despacho.get("operacion_id", "")).strip(),
+                    "items": grupo,
+                }
+            )
+    return bloques
+
+
+def resumen_capacidad_orden(despachos):
+    bloques = construir_bloques_formatos(despachos)
+    lineas = sum(len(despacho.get("items", []) or []) for despacho in despachos or [])
+    return {
+        "despachos": len(despachos or []),
+        "bloques": len(bloques),
+        "lineas": lineas,
+        "bloques_disponibles": max(0, MAX_BLOQUES_FORMATO_DESPACHO - len(bloques)),
+    }
+
+
+def aplanar_despachos_para_tabla(despachos):
+    filas = []
+    for numero, despacho in enumerate(despachos or [], start=1):
+        fecha = fecha_registro_despacho(despacho)
+        for item in despacho.get("items", []) or []:
+            filas.append(
+                {
+                    "Despacho": numero,
+                    "Fecha": fecha.strftime("%d/%m/%Y %H:%M"),
+                    "Cliente": despacho.get("cliente", ""),
+                    "Producto": item.get("Producto", ""),
+                    "Cantidad": item.get("Cantidad", 0),
+                    "Lote": item.get("Lote", ""),
+                    "Código del barril": item.get("Código del barril", ""),
+                    "Responsable": despacho.get("responsable", ""),
+                }
+            )
+    return filas
+
+
+def responsables_unicos_orden(despachos):
+    responsables = []
+    for despacho in despachos or []:
+        nombre = str(despacho.get("responsable", "")).strip()
+        if nombre and nombre not in responsables:
+            responsables.append(nombre)
+    return " / ".join(responsables)
+
+
+def validar_capacidad_orden(despachos):
+    bloques = construir_bloques_formatos(despachos)
+    if not bloques:
+        raise ValueError("No hay despachos confirmados para generar la orden.")
+    if len(bloques) > MAX_BLOQUES_FORMATO_DESPACHO:
+        raise ValueError(
+            "La hoja oficial permite máximo "
+            f"{MAX_BLOQUES_FORMATO_DESPACHO} bloques de despacho de "
+            f"{PRODUCTOS_POR_BLOQUE_FORMATO} productos cada uno. "
+            f"La tanda actual requiere {len(bloques)} bloques. "
+            "Genera la orden antes de registrar más despachos."
+        )
+    return bloques
+
+
+def llenar_hoja_pedido_distribucion(ws, despachos):
+    """Diligencia F-TRZ-002 con todos los despachos confirmados de la tanda."""
+    limpiar_area_formatos(ws, "F-TRZ-002")
+    bloques = validar_capacidad_orden(despachos)
+
+    for indice_bloque, bloque in enumerate(bloques):
+        fila_grupo = 7 + indice_bloque * PRODUCTOS_POR_BLOQUE_FORMATO
+        fecha_txt = bloque["fecha"].strftime("%d/%m/%Y")
+        escribir_valor_formato(ws, f"A{fila_grupo}", fecha_txt)
+        escribir_valor_formato(ws, f"B{fila_grupo}", bloque["cliente"])
+        escribir_valor_formato(ws, f"G{fila_grupo}", "X")  # Calidad: cumple
+        escribir_valor_formato(ws, f"I{fila_grupo}", "X")  # Limpieza: cumple
+        escribir_valor_formato(ws, f"K{fila_grupo}", bloque["observaciones"])
+
+        for desplazamiento, item in enumerate(bloque["items"]):
+            fila = fila_grupo + desplazamiento
+            escribir_valor_formato(ws, f"C{fila}", item["Producto"])
+            escribir_valor_formato(ws, f"D{fila}", item["Cantidad"])
+            escribir_valor_formato(ws, f"E{fila}", item["Lote"])
+            escribir_valor_formato(ws, f"F{fila}", item["Código del barril"])
+
+    escribir_valor_formato(ws, "B35", responsables_unicos_orden(despachos))
+    escribir_valor_formato(ws, "B36", "")
+
+
+def llenar_hoja_orden_entrega(ws, despachos):
+    """Diligencia F-TRZ-003 con cliente, dirección y productos de cada despacho."""
+    limpiar_area_formatos(ws, "F-TRZ-003")
+    bloques = validar_capacidad_orden(despachos)
+
+    for indice_bloque, bloque in enumerate(bloques):
+        fila_grupo = 7 + indice_bloque * PRODUCTOS_POR_BLOQUE_FORMATO
+        fecha_txt = bloque["fecha"].strftime("%d/%m/%Y")
+        cliente_y_direccion = bloque["cliente"]
+        if bloque["direccion"]:
+            cliente_y_direccion = f"{cliente_y_direccion} - {bloque['direccion']}"
+
+        escribir_valor_formato(ws, f"A{fila_grupo}", fecha_txt)
+        escribir_valor_formato(ws, f"B{fila_grupo}", cliente_y_direccion)
+        escribir_valor_formato(ws, f"E{fila_grupo}", "X")  # Pedido correcto: sí
+        escribir_valor_formato(ws, f"G{fila_grupo}", bloque["observaciones"])
+        escribir_valor_formato(ws, f"H{fila_grupo}", "")  # Firma de recibido
+
+        for desplazamiento, item in enumerate(bloque["items"]):
+            fila = fila_grupo + desplazamiento
+            escribir_valor_formato(ws, f"C{fila}", item["Producto"])
+            escribir_valor_formato(ws, f"D{fila}", item["Cantidad"])
+
+    escribir_valor_formato(ws, "B34", responsables_unicos_orden(despachos))
+    escribir_valor_formato(ws, "B35", "")
+
+
+def generar_formatos_despacho_excel(despachos, lote_orden_id=""):
+    """Genera una sola orden con todos los despachos acumulados y confirmados."""
+    bloques = validar_capacidad_orden(despachos)
     wb = abrir_plantilla_despacho()
-    fecha = fecha or datetime.now()
-    cliente_limpio = str(cliente or "").strip()
-    direccion_limpia = str(direccion or "").strip()
-    responsable_limpio = str(responsable or "").strip()
-    observaciones_limpias = str(observaciones or "").strip()
-    cliente_y_direccion = cliente_limpio
-    if direccion_limpia:
-        cliente_y_direccion = f"{cliente_limpio} - {direccion_limpia}"
 
     hojas_requeridas = {"F-TRZ-002", "F-TRZ-003"}
     faltantes = hojas_requeridas.difference(wb.sheetnames)
     if faltantes:
         raise ValueError(f"La plantilla interna no contiene: {', '.join(sorted(faltantes))}")
 
-    llenar_hoja_pedido_distribucion(
-        wb["F-TRZ-002"],
-        items,
-        fecha,
-        cliente_limpio,
-        responsable_limpio,
-        observaciones_limpias,
-    )
-    llenar_hoja_orden_entrega(
-        wb["F-TRZ-003"],
-        items,
-        fecha,
-        cliente_y_direccion,
-        responsable_limpio,
-        observaciones_limpias,
-    )
+    llenar_hoja_pedido_distribucion(wb["F-TRZ-002"], despachos)
+    llenar_hoja_orden_entrega(wb["F-TRZ-003"], despachos)
 
-    # Configuración de impresión para que cada formato salga en una sola página.
     for ws in (wb["F-TRZ-002"], wb["F-TRZ-003"]):
         ws.sheet_view.showGridLines = False
         ws.page_setup.orientation = "landscape"
@@ -1258,37 +1375,49 @@ def generar_formatos_despacho_excel(
         ws.sheet_properties.pageSetUpPr.fitToPage = True
         ws.print_options.horizontalCentered = True
 
-    wb.properties.title = f"Orden de despacho - {cliente_limpio}"
-    wb.properties.subject = "Formatos F-TRZ-002 y F-TRZ-003 listos para firma"
+    wb.properties.title = f"Orden acumulada - {len(despachos)} despachos"
+    wb.properties.subject = (
+        f"F-TRZ-002 y F-TRZ-003 con {len(despachos)} despachos y {len(bloques)} bloques"
+    )
     wb.properties.creator = "Sistema de Trazabilidad Castiza"
-    if operacion_id:
-        wb.properties.identifier = str(operacion_id)
+    if lote_orden_id:
+        wb.properties.identifier = str(lote_orden_id)
 
     salida = io.BytesIO()
     wb.save(salida)
     return salida.getvalue()
 
 
-def generar_html_impresion_orden(
-    items,
-    cliente,
-    direccion,
-    responsable,
-    observaciones,
-    fecha=None,
-):
-    """Crea una vista rápida para imprimir y firmar desde el navegador."""
-    fecha_txt = (fecha or datetime.now()).strftime("%d/%m/%Y")
-    direccion_limpia = str(direccion or "").strip()
-    filas = ""
-    for item in items:
-        filas += f"""
-        <tr>
-            <td>{html_lib.escape(str(item['Producto']))}</td>
-            <td>{html_lib.escape(str(item['Cantidad']))}</td>
-            <td>{html_lib.escape(str(item['Lote']))}</td>
-            <td>{html_lib.escape(str(item['Código del barril']))}</td>
-        </tr>
+def generar_html_impresion_orden(despachos):
+    """Crea una vista de impresión agrupada por despacho."""
+    secciones = ""
+    for numero, despacho in enumerate(despachos or [], start=1):
+        fecha_txt = fecha_registro_despacho(despacho).strftime("%d/%m/%Y %H:%M")
+        filas = ""
+        for item in despacho.get("items", []) or []:
+            filas += f"""
+            <tr>
+                <td>{html_lib.escape(str(item.get('Producto', '')))}</td>
+                <td>{html_lib.escape(str(item.get('Cantidad', '')))}</td>
+                <td>{html_lib.escape(str(item.get('Lote', '')))}</td>
+                <td>{html_lib.escape(str(item.get('Código del barril', '')))}</td>
+            </tr>
+            """
+        secciones += f"""
+        <section class="despacho">
+            <h2>Despacho {numero}</h2>
+            <p class="meta"><strong>Fecha:</strong> {html_lib.escape(fecha_txt)}</p>
+            <p class="meta"><strong>Cliente:</strong> {html_lib.escape(str(despacho.get('cliente', '')))}</p>
+            <p class="meta"><strong>Dirección:</strong> {html_lib.escape(str(despacho.get('direccion', '')))}</p>
+            <p class="meta"><strong>Responsable:</strong> {html_lib.escape(str(despacho.get('responsable', '')))}</p>
+            <table>
+                <thead>
+                    <tr><th>Producto</th><th>Cantidad</th><th>Lote</th><th>Código del barril</th></tr>
+                </thead>
+                <tbody>{filas}</tbody>
+            </table>
+            <p class="meta"><strong>Observaciones:</strong> {html_lib.escape(str(despacho.get('observaciones', '')))}</p>
+        </section>
         """
 
     return f"""
@@ -1301,39 +1430,22 @@ def generar_html_impresion_orden(
             .toolbar {{ margin-bottom: 16px; }}
             button {{ background: #20cb80; color: white; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; cursor: pointer; }}
             h1 {{ color: #1a5d3b; margin-bottom: 4px; }}
+            h2 {{ color: #1a5d3b; font-size: 17px; margin-bottom: 4px; }}
             .meta {{ margin: 2px 0; font-size: 13px; }}
-            table {{ width: 100%; border-collapse: collapse; margin-top: 18px; }}
+            .despacho {{ margin-top: 22px; page-break-inside: avoid; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 10px; }}
             th {{ background: #1a5d3b; color: white; text-align: left; }}
             th, td {{ border: 1px solid #b6c2b9; padding: 8px; font-size: 12px; }}
             .firmas {{ display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 56px; }}
             .firma {{ border-top: 1px solid #333; padding-top: 8px; font-size: 12px; }}
-            @media print {{
-                .toolbar {{ display: none; }}
-                body {{ margin: 8mm; }}
-            }}
+            @media print {{ .toolbar {{ display: none; }} body {{ margin: 8mm; }} }}
         </style>
     </head>
     <body>
-        <div class="toolbar">
-            <button onclick="window.print()">🖨️ Imprimir orden</button>
-        </div>
-        <h1>Orden de pedido y despacho Castiza</h1>
-        <p class="meta"><strong>Fecha:</strong> {html_lib.escape(fecha_txt)}</p>
-        <p class="meta"><strong>Cliente:</strong> {html_lib.escape(str(cliente or ''))}</p>
-        <p class="meta"><strong>Dirección:</strong> {html_lib.escape(direccion_limpia)}</p>
-        <p class="meta"><strong>Responsable:</strong> {html_lib.escape(str(responsable or ''))}</p>
-        <table>
-            <thead>
-                <tr>
-                    <th>Producto</th>
-                    <th>Cantidad</th>
-                    <th>Lote</th>
-                    <th>Código del barril</th>
-                </tr>
-            </thead>
-            <tbody>{filas}</tbody>
-        </table>
-        <p class="meta"><strong>Observaciones:</strong> {html_lib.escape(str(observaciones or ''))}</p>
+        <div class="toolbar"><button onclick="window.print()">🖨️ Imprimir orden</button></div>
+        <h1>Orden acumulada de pedidos y despachos Castiza</h1>
+        <p class="meta"><strong>Despachos incluidos:</strong> {len(despachos or [])}</p>
+        {secciones}
         <div class="firmas">
             <div class="firma">Entrega / Responsable del transporte</div>
             <div class="firma">Recibe / Cliente</div>
@@ -1343,52 +1455,34 @@ def generar_html_impresion_orden(
     """
 
 
-def preparar_orden_despacho_para_descarga(
-    items,
-    cliente,
-    direccion,
-    responsable,
-    observaciones,
-    operacion_id,
-    fecha=None,
-):
-    """Empaqueta el Excel oficial y la vista de impresión tras un despacho exitoso."""
+def preparar_orden_despacho_para_descarga(despachos, lote_orden_id="", fecha=None):
+    """Empaqueta el Excel y la vista de impresión de la tanda cerrada."""
     fecha = fecha or datetime.now()
+    lote_orden_id = str(lote_orden_id or uuid.uuid4().hex)
     archivo_excel = generar_formatos_despacho_excel(
-        items,
-        cliente,
-        direccion,
-        responsable,
-        observaciones,
-        fecha=fecha,
-        operacion_id=operacion_id,
+        despachos,
+        lote_orden_id=lote_orden_id,
     )
-    nombre_archivo = (
-        f"orden_despacho_{nombre_archivo_seguro(cliente)}_"
-        f"{fecha.strftime('%Y%m%d_%H%M%S')}.xlsx"
-    )
+    nombre_archivo = f"orden_pedidos_{fecha.strftime('%Y%m%d_%H%M%S')}.xlsx"
     return {
         "archivo": archivo_excel,
         "nombre": nombre_archivo,
-        "html": generar_html_impresion_orden(
-            items,
-            cliente,
-            direccion,
-            responsable,
-            observaciones,
-            fecha=fecha,
-        ),
-        "operacion_id": str(operacion_id or ""),
+        "html": generar_html_impresion_orden(despachos),
+        "operacion_id": lote_orden_id,
+        "cantidad_despachos": len(despachos or []),
     }
 
 
 def mostrar_orden_despacho_generada(orden, descarga_automatica=False):
-    """Muestra la orden confirmada e intenta descargarla una sola vez automáticamente."""
+    """Muestra la última orden cerrada e intenta descargarla una sola vez."""
     if not orden:
         return
 
+    cantidad = int(orden.get("cantidad_despachos", 0) or 0)
     st.markdown("---")
-    st.success("📄 Orden oficial diligenciada y lista para imprimir y firmar.")
+    st.success(
+        f"📄 Orden oficial generada con {cantidad} despacho(s), lista para imprimir y firmar."
+    )
     st.download_button(
         "⬇️ Descargar nuevamente los formatos F-TRZ-002 y F-TRZ-003",
         data=orden["archivo"],
@@ -1406,7 +1500,7 @@ def mostrar_orden_despacho_generada(orden, descarga_automatica=False):
         components.html(
             f"""
             <div style="font-family:Arial,sans-serif;font-size:13px;color:#243b2f;">
-                Iniciando descarga automática de la orden…
+                Iniciando descarga automática de la orden acumulada…
             </div>
             <script>
             (() => {{
@@ -1424,10 +1518,7 @@ def mostrar_orden_despacho_generada(orden, descarga_automatica=False):
                     enlace.style.display = "none";
                     document.body.appendChild(enlace);
                     enlace.click();
-                    setTimeout(() => {{
-                        URL.revokeObjectURL(url);
-                        enlace.remove();
-                    }}, 1500);
+                    setTimeout(() => {{ URL.revokeObjectURL(url); enlace.remove(); }}, 1500);
                 }} catch (error) {{
                     console.error("No se pudo iniciar la descarga automática", error);
                 }}
@@ -1438,11 +1529,11 @@ def mostrar_orden_despacho_generada(orden, descarga_automatica=False):
         )
 
     st.caption(
-        "El Excel contiene los formatos oficiales completos. Las casillas de firma quedan en blanco "
-        "para que firmen el responsable, el supervisor y el cliente al recibir."
+        "El Excel contiene todos los despachos acumulados antes de cerrar la tanda. "
+        "Las casillas de firma quedan libres."
     )
     with st.expander("🖨️ Vista rápida e impresión desde el navegador", expanded=False):
-        components.html(orden["html"], height=560, scrolling=True)
+        components.html(orden["html"], height=640, scrolling=True)
 
 
 # --- Lista de estilos global ---
@@ -1516,7 +1607,7 @@ if resultado_anterior:
     for detalle in resultado_anterior.get("detalles", []):
         st.write(f"• {detalle}")
 
-# La orden se muestra después del resultado para que corresponda únicamente a un despacho confirmado.
+# La última orden cerrada permanece disponible para descargar o imprimir.
 orden_confirmada = st.session_state.get("orden_despacho_generada")
 if orden_confirmada:
     descarga_automatica = bool(
@@ -1533,6 +1624,87 @@ if orden_confirmada:
     ):
         st.session_state.pop("orden_despacho_generada", None)
         st.rerun()
+
+# ---------- ORDEN ACUMULADA PENDIENTE ----------
+if "despachos_pendientes_orden" not in st.session_state:
+    st.session_state.despachos_pendientes_orden = []
+
+st.markdown("---")
+st.markdown(
+    "<h2 style='color:#fff3aa;'>🧾 Orden de pedido en preparación</h2>",
+    unsafe_allow_html=True,
+)
+despachos_pendientes = obtener_despachos_pendientes_orden()
+resumen_orden_pendiente = resumen_capacidad_orden(despachos_pendientes)
+
+if not despachos_pendientes:
+    st.info(
+        "Aún no hay despachos pendientes. Cada despacho confirmado se agregará aquí. "
+        "Cuando termines la tanda, presiona Generar orden de pedido."
+    )
+else:
+    metricas = st.columns(4)
+    metricas[0].metric("Despachos", resumen_orden_pendiente["despachos"])
+    metricas[1].metric("Productos", resumen_orden_pendiente["lineas"])
+    metricas[2].metric(
+        "Bloques usados",
+        f"{resumen_orden_pendiente['bloques']}/{MAX_BLOQUES_FORMATO_DESPACHO}",
+    )
+    total_barriles_orden = sum(
+        1
+        for despacho in despachos_pendientes
+        for item in despacho.get("items", [])
+        if item.get("Tipo") == "Barril"
+    )
+    total_latas_orden = sum(
+        int(item.get("Cantidad", 0) or 0)
+        for despacho in despachos_pendientes
+        for item in despacho.get("items", [])
+        if item.get("Tipo") == "Latas"
+    )
+    metricas[3].metric("Barriles / latas", f"{total_barriles_orden} / {total_latas_orden}")
+
+    filas_pendientes = aplanar_despachos_para_tabla(despachos_pendientes)
+    st.dataframe(
+        pd.DataFrame(filas_pendientes),
+        hide_index=True,
+        use_container_width=True,
+    )
+    st.caption(
+        "La orden oficial tiene 9 bloques de tres productos. Un despacho con más de tres "
+        "productos ocupa más de un bloque."
+    )
+
+    if st.button(
+        "📄 Generar orden de pedido",
+        key="generar_orden_pedido_acumulada",
+        type="primary",
+        use_container_width=True,
+    ):
+        despachos_a_cerrar = list(obtener_despachos_pendientes_orden())
+        try:
+            lote_orden_id = uuid.uuid4().hex
+            orden_generada = preparar_orden_despacho_para_descarga(
+                despachos_a_cerrar,
+                lote_orden_id=lote_orden_id,
+                fecha=datetime.now(),
+            )
+        except Exception as exc:
+            st.error(f"No fue posible generar la orden acumulada: {exc}")
+        else:
+            st.session_state.orden_despacho_generada = orden_generada
+            st.session_state.descargar_orden_automaticamente = True
+            # Cerrar la tanda: los siguientes despachos iniciarán una orden nueva.
+            st.session_state.despachos_pendientes_orden = []
+            st.session_state.resultado_movimiento = {
+                "tipo": "success",
+                "mensaje": (
+                    f"Orden generada con {len(despachos_a_cerrar)} despacho(s). "
+                    "La lista pendiente quedó lista para una nueva tanda."
+                ),
+                "detalles": [],
+            }
+            st.rerun()
 
 if BACKEND_SEGURO_ACTIVO:
     st.success("🔒 Protección transaccional activa: bloqueo simultáneo e idempotencia habilitados.")
@@ -1842,11 +2014,11 @@ observaciones = st.text_area(
     disabled=st.session_state.movimiento_guardando,
 )
 
-# ---------- VISTA PREVIA DE LA ORDEN QUE SE GENERARÁ AL CONFIRMAR ----------
+# ---------- VISTA PREVIA DEL DESPACHO QUE SE AGREGARÁ A LA ORDEN ----------
 if estado_barril == "Despacho":
     st.markdown("---")
     st.markdown(
-        "<h3 style='color:#fff3aa;'>📄 Orden de pedido automática</h3>",
+        "<h3 style='color:#fff3aa;'>📦 Productos del despacho actual</h3>",
         unsafe_allow_html=True,
     )
 
@@ -1859,12 +2031,23 @@ if estado_barril == "Despacho":
     )
 
     if items_orden:
-        st.caption("Productos que se incluirán en los formatos cuando el despacho sea confirmado")
+        st.caption("Estos productos se agregarán a la orden en preparación cuando el despacho sea confirmado")
         st.dataframe(pd.DataFrame(items_orden), hide_index=True, use_container_width=True)
+        bloques_actuales = resumen_capacidad_orden(
+            obtener_despachos_pendientes_orden()
+        )["bloques"]
+        bloques_nuevos = bloques_requeridos_despacho(items_orden)
+        bloques_despues = bloques_actuales + bloques_nuevos
         st.info(
-            "Al finalizar correctamente el registro se generarán automáticamente F-TRZ-002 y "
-            "F-TRZ-003, completos y listos para imprimir y firmar."
+            f"La orden en preparación usa {bloques_actuales}/{MAX_BLOQUES_FORMATO_DESPACHO} bloques. "
+            f"Este despacho usará {bloques_nuevos} bloque(s) y quedará en "
+            f"{bloques_despues}/{MAX_BLOQUES_FORMATO_DESPACHO}."
         )
+        if bloques_despues > MAX_BLOQUES_FORMATO_DESPACHO:
+            st.error(
+                "La orden actual no tiene espacio para este despacho. "
+                "Genera primero la orden de pedido acumulada y luego registra este despacho."
+            )
     else:
         st.info("Selecciona un barril y/o completa las latas del despacho.")
 
@@ -1908,13 +2091,18 @@ if st.session_state.get("movimiento_solicitado", False):
         )
         if not items_para_formato:
             errores_guardado.append(
-                "El despacho no contiene productos para diligenciar la orden."
+                "El despacho no contiene productos para agregar a la orden."
             )
-        elif len(items_para_formato) > MAX_LINEAS_FORMATO_DESPACHO:
-            errores_guardado.append(
-                f"El formato admite máximo {MAX_LINEAS_FORMATO_DESPACHO} líneas de producto; "
-                f"este despacho tiene {len(items_para_formato)}."
-            )
+        else:
+            bloques_actuales = resumen_capacidad_orden(
+                obtener_despachos_pendientes_orden()
+            )["bloques"]
+            bloques_nuevos = bloques_requeridos_despacho(items_para_formato)
+            if bloques_actuales + bloques_nuevos > MAX_BLOQUES_FORMATO_DESPACHO:
+                errores_guardado.append(
+                    "La orden en preparación no tiene espacio para este despacho. "
+                    "Genera primero la orden de pedido y luego vuelve a registrar el despacho."
+                )
 
     datos_barriles_frescos = pd.DataFrame()
     ultimo_fresco = None
@@ -2003,7 +2191,7 @@ if st.session_state.get("movimiento_solicitado", False):
                 f"Barril {codigo_barril} despachado a {cliente}. Ya no aparecerá entre los barriles de cuarto frío."
             )
 
-        # La orden se crea solo después de que el despacho completo fue confirmado.
+        # Cada despacho confirmado se agrega a la orden pendiente; no se genera aún el documento.
         if estado_barril == "Despacho":
             try:
                 items_confirmados = construir_items_orden_despacho(
@@ -2013,7 +2201,7 @@ if st.session_state.get("movimiento_solicitado", False):
                     latas,
                     observaciones,
                 )
-                orden_confirmada = preparar_orden_despacho_para_descarga(
+                despacho_confirmado = crear_despacho_para_orden(
                     items_confirmados,
                     cliente,
                     direccion_cliente,
@@ -2022,14 +2210,21 @@ if st.session_state.get("movimiento_solicitado", False):
                     operacion_id,
                     fecha=datetime.now(),
                 )
-                st.session_state.orden_despacho_generada = orden_confirmada
-                st.session_state.descargar_orden_automaticamente = True
-                detalle.append(
-                    "Se diligenciaron automáticamente F-TRZ-002 y F-TRZ-003 con todos los productos registrados."
-                )
+                agregado = agregar_despacho_pendiente_orden(despacho_confirmado)
+                if agregado:
+                    cantidad_pendiente = len(obtener_despachos_pendientes_orden())
+                    detalle.append(
+                        f"El despacho se agregó a la orden en preparación. "
+                        f"Ahora contiene {cantidad_pendiente} despacho(s)."
+                    )
+                else:
+                    detalle.append(
+                        "Este despacho ya estaba incluido en la orden en preparación; "
+                        "no se duplicó."
+                    )
             except Exception as exc:
                 detalle.append(
-                    "El despacho quedó registrado, pero no fue posible construir la orden para firma: "
+                    "El despacho quedó registrado, pero no fue posible agregarlo a la orden pendiente: "
                     f"{exc}"
                 )
 
