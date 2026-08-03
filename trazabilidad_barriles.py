@@ -7,11 +7,16 @@ import os
 from datetime import datetime
 import unicodedata
 import hashlib
+import html as html_lib
 import io
 import json
 import re
 import time
 import uuid
+from copy import copy
+
+from openpyxl import load_workbook
+
 
 # La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
 
@@ -622,6 +627,301 @@ def limpiar_widgets_movimiento():
         st.session_state.pop(clave, None)
     st.session_state.num_latas = 1
 
+
+# ---------- GENERACIÓN DE ORDEN DE PEDIDO Y FORMATOS DE DESPACHO ----------
+NOMBRE_PLANTILLA_DESPACHO = "FORMATOS DE DESPACHOS.xlsx"
+MAX_LINEAS_FORMATO_DESPACHO = 27
+
+
+def buscar_ruta_plantilla_despacho():
+    """Busca la plantilla junto a la app, en la carpeta superior o en el directorio actual."""
+    try:
+        base = os.path.dirname(os.path.abspath(__file__))
+    except NameError:
+        base = os.getcwd()
+
+    candidatos = [
+        os.path.join(base, NOMBRE_PLANTILLA_DESPACHO),
+        os.path.join(base, "..", NOMBRE_PLANTILLA_DESPACHO),
+        os.path.join(os.getcwd(), NOMBRE_PLANTILLA_DESPACHO),
+    ]
+    for ruta in candidatos:
+        ruta_normalizada = os.path.abspath(ruta)
+        if os.path.exists(ruta_normalizada):
+            return ruta_normalizada
+    return ""
+
+
+def abrir_plantilla_despacho(archivo_subido=None):
+    """Abre la plantilla Excel conservando sus hojas, logotipo, formatos y celdas combinadas."""
+    if archivo_subido is not None:
+        return load_workbook(io.BytesIO(archivo_subido.getvalue()))
+
+    ruta = buscar_ruta_plantilla_despacho()
+    if not ruta:
+        raise FileNotFoundError(
+            f"No encontré {NOMBRE_PLANTILLA_DESPACHO}. Súbelo al repositorio, "
+            "preferiblemente en la raíz del proyecto o junto al archivo de la app."
+        )
+    return load_workbook(ruta)
+
+
+def formatear_numero_litros(valor):
+    if valor in (None, ""):
+        return ""
+    try:
+        numero = float(valor)
+    except (TypeError, ValueError):
+        return str(valor)
+    if numero.is_integer():
+        return str(int(numero))
+    return f"{numero:.1f}".rstrip("0").rstrip(".")
+
+
+def capacidad_barril_por_codigo(codigo):
+    codigo_limpio = normalizar_codigo_barril(codigo)
+    if codigo_limpio.startswith("20"):
+        return 20
+    if codigo_limpio.startswith("30"):
+        return 30
+    if codigo_limpio.startswith("58"):
+        return 58
+    return ""
+
+
+def extraer_litros_desde_observaciones(texto):
+    """Detecta observaciones como 'Barril con 14 lt' o '28,4 litros'."""
+    if not texto:
+        return None
+    patron = re.compile(r"(\d+(?:[,.]\d+)?)\s*(?:l|lt|lts|litro|litros)\b", re.IGNORECASE)
+    coincidencia = patron.search(str(texto))
+    if not coincidencia:
+        return None
+    try:
+        return float(coincidencia.group(1).replace(",", "."))
+    except ValueError:
+        return None
+
+
+def nombre_archivo_seguro(texto):
+    limpio = unicodedata.normalize("NFKD", str(texto or ""))
+    limpio = "".join(c for c in limpio if not unicodedata.combining(c))
+    limpio = re.sub(r"[^A-Za-z0-9_-]+", "_", limpio).strip("_")
+    return limpio or "cliente"
+
+
+def construir_items_orden_despacho(codigo_barril, estilo_barril, lote_barril, latas_solicitadas, observaciones):
+    """Construye las líneas que alimentan F-TRZ-002 y F-TRZ-003."""
+    items = []
+
+    codigo_limpio = normalizar_codigo_barril(codigo_barril)
+    if codigo_limpio:
+        litros_observados = extraer_litros_desde_observaciones(observaciones)
+        capacidad = litros_observados if litros_observados else capacidad_barril_por_codigo(codigo_limpio)
+        capacidad_txt = formatear_numero_litros(capacidad)
+        producto = "Barril"
+        if capacidad_txt:
+            producto = f"Barril de {capacidad_txt}L"
+        if str(estilo_barril).strip():
+            producto = f"{producto} - {str(estilo_barril).strip()}"
+
+        items.append(
+            {
+                "Tipo": "Barril",
+                "Producto": producto,
+                "Cantidad": 1,
+                "Lote": str(lote_barril or "").strip(),
+                "Código del barril": codigo_limpio,
+            }
+        )
+
+    for item in latas_solicitadas or []:
+        estilo = str(item.get("estilo", "")).strip()
+        lote = str(item.get("lote", "")).strip()
+        cantidad = int(item.get("cantidad", 0) or 0)
+        if cantidad <= 0 or not estilo or not lote:
+            continue
+        items.append(
+            {
+                "Tipo": "Latas",
+                "Producto": f"Lata 330mL - {estilo}",
+                "Cantidad": cantidad,
+                "Lote": lote,
+                "Código del barril": "",
+            }
+        )
+
+    return items
+
+
+def escribir_valor_formato(ws, celda, valor):
+    """Escribe sin borrar el estilo existente de la plantilla."""
+    ws[celda].value = valor
+    alineacion = copy(ws[celda].alignment)
+    alineacion.wrap_text = True
+    alineacion.vertical = "center"
+    ws[celda].alignment = alineacion
+
+
+def limpiar_area_formatos(ws, tipo):
+    """Limpia solo campos de captura, sin tocar encabezados ni estructura."""
+    if tipo == "F-TRZ-002":
+        for fila in range(7, 34):
+            for columna in ["C", "D", "E", "F"]:
+                ws[f"{columna}{fila}"].value = None
+        for fila_grupo in range(7, 34, 3):
+            for celda in [f"A{fila_grupo}", f"B{fila_grupo}", f"G{fila_grupo}", f"H{fila_grupo}", f"I{fila_grupo}", f"J{fila_grupo}", f"K{fila_grupo}"]:
+                ws[celda].value = None
+        for celda in ["B35", "B36", "C34", "C35", "C36"]:
+            ws[celda].value = None
+    elif tipo == "F-TRZ-003":
+        for fila in range(7, 34):
+            for columna in ["C", "D"]:
+                ws[f"{columna}{fila}"].value = None
+        for fila_grupo in range(7, 34, 3):
+            for celda in [f"A{fila_grupo}", f"B{fila_grupo}", f"E{fila_grupo}", f"F{fila_grupo}", f"G{fila_grupo}", f"H{fila_grupo}"]:
+                ws[celda].value = None
+        for celda in ["B34", "B35"]:
+            ws[celda].value = None
+
+
+def llenar_hoja_pedido_distribucion(ws, items, fecha, cliente, responsable, observaciones):
+    limpiar_area_formatos(ws, "F-TRZ-002")
+    fecha_txt = fecha.strftime("%d/%m/%Y")
+
+    for indice, item in enumerate(items[:MAX_LINEAS_FORMATO_DESPACHO]):
+        fila = 7 + indice
+        fila_grupo = 7 + (indice // 3) * 3
+        if indice % 3 == 0:
+            escribir_valor_formato(ws, f"A{fila_grupo}", fecha_txt)
+            escribir_valor_formato(ws, f"B{fila_grupo}", cliente)
+            escribir_valor_formato(ws, f"G{fila_grupo}", "X")  # Calidad del producto: cumple
+            escribir_valor_formato(ws, f"I{fila_grupo}", "X")  # Limpieza del vehículo: cumple
+            escribir_valor_formato(ws, f"K{fila_grupo}", observaciones)
+
+        escribir_valor_formato(ws, f"C{fila}", item["Producto"])
+        escribir_valor_formato(ws, f"D{fila}", item["Cantidad"])
+        escribir_valor_formato(ws, f"E{fila}", item["Lote"])
+        escribir_valor_formato(ws, f"F{fila}", item["Código del barril"])
+
+    escribir_valor_formato(ws, "B35", responsable)
+
+
+def llenar_hoja_orden_entrega(ws, items, fecha, cliente_y_direccion, responsable, observaciones):
+    limpiar_area_formatos(ws, "F-TRZ-003")
+    fecha_txt = fecha.strftime("%d/%m/%Y")
+
+    for indice, item in enumerate(items[:MAX_LINEAS_FORMATO_DESPACHO]):
+        fila = 7 + indice
+        fila_grupo = 7 + (indice // 3) * 3
+        if indice % 3 == 0:
+            escribir_valor_formato(ws, f"A{fila_grupo}", fecha_txt)
+            escribir_valor_formato(ws, f"B{fila_grupo}", cliente_y_direccion)
+            escribir_valor_formato(ws, f"E{fila_grupo}", "X")  # Pedido correcto: SI
+            escribir_valor_formato(ws, f"G{fila_grupo}", observaciones)
+
+        escribir_valor_formato(ws, f"C{fila}", item["Producto"])
+        escribir_valor_formato(ws, f"D{fila}", item["Cantidad"])
+
+    escribir_valor_formato(ws, "B34", responsable)
+
+
+def generar_formatos_despacho_excel(items, cliente, direccion, responsable, observaciones, archivo_subido=None):
+    if not items:
+        raise ValueError("No hay productos para generar la orden.")
+    if len(items) > MAX_LINEAS_FORMATO_DESPACHO:
+        raise ValueError(
+            f"El formato permite máximo {MAX_LINEAS_FORMATO_DESPACHO} líneas de producto. "
+            f"Actualmente hay {len(items)} líneas."
+        )
+
+    wb = abrir_plantilla_despacho(archivo_subido)
+    fecha = datetime.now()
+    direccion_limpia = str(direccion or "").strip()
+    cliente_limpio = str(cliente or "").strip()
+    cliente_y_direccion = cliente_limpio
+    if direccion_limpia:
+        cliente_y_direccion = f"{cliente_limpio} - {direccion_limpia}"
+
+    if "F-TRZ-002" in wb.sheetnames:
+        llenar_hoja_pedido_distribucion(
+            wb["F-TRZ-002"], items, fecha, cliente_limpio, responsable, observaciones
+        )
+    if "F-TRZ-003" in wb.sheetnames:
+        llenar_hoja_orden_entrega(
+            wb["F-TRZ-003"], items, fecha, cliente_y_direccion, responsable, observaciones
+        )
+
+    salida = io.BytesIO()
+    wb.save(salida)
+    return salida.getvalue()
+
+
+def generar_html_impresion_orden(items, cliente, direccion, responsable, observaciones):
+    fecha_txt = datetime.now().strftime("%d/%m/%Y")
+    direccion_limpia = str(direccion or "").strip()
+    filas = ""
+    for item in items:
+        filas += f"""
+        <tr>
+            <td>{html_lib.escape(str(item['Producto']))}</td>
+            <td>{html_lib.escape(str(item['Cantidad']))}</td>
+            <td>{html_lib.escape(str(item['Lote']))}</td>
+            <td>{html_lib.escape(str(item['Código del barril']))}</td>
+        </tr>
+        """
+
+    return f"""
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="utf-8">
+        <style>
+            body {{ font-family: Arial, sans-serif; color: #1f2933; margin: 24px; }}
+            .toolbar {{ margin-bottom: 16px; }}
+            button {{ background: #20cb80; color: white; border: 0; border-radius: 8px; padding: 10px 16px; font-weight: 700; cursor: pointer; }}
+            h1 {{ color: #1a5d3b; margin-bottom: 4px; }}
+            .meta {{ margin: 2px 0; font-size: 13px; }}
+            table {{ width: 100%; border-collapse: collapse; margin-top: 18px; }}
+            th {{ background: #1a5d3b; color: white; text-align: left; }}
+            th, td {{ border: 1px solid #b6c2b9; padding: 8px; font-size: 12px; }}
+            .firmas {{ display: grid; grid-template-columns: 1fr 1fr; gap: 40px; margin-top: 56px; }}
+            .firma {{ border-top: 1px solid #333; padding-top: 8px; font-size: 12px; }}
+            @media print {{
+                .toolbar {{ display: none; }}
+                body {{ margin: 8mm; }}
+            }}
+        </style>
+    </head>
+    <body>
+        <div class="toolbar">
+            <button onclick="window.print()">🖨️ Imprimir orden</button>
+        </div>
+        <h1>Orden de pedido y despacho Castiza</h1>
+        <p class="meta"><strong>Fecha:</strong> {html_lib.escape(fecha_txt)}</p>
+        <p class="meta"><strong>Cliente:</strong> {html_lib.escape(str(cliente or ''))}</p>
+        <p class="meta"><strong>Dirección:</strong> {html_lib.escape(direccion_limpia)}</p>
+        <p class="meta"><strong>Responsable:</strong> {html_lib.escape(str(responsable or ''))}</p>
+        <table>
+            <thead>
+                <tr>
+                    <th>Producto</th>
+                    <th>Cantidad</th>
+                    <th>Lote</th>
+                    <th>Código del barril</th>
+                </tr>
+            </thead>
+            <tbody>{filas}</tbody>
+        </table>
+        <p class="meta"><strong>Observaciones:</strong> {html_lib.escape(str(observaciones or ''))}</p>
+        <div class="firmas">
+            <div class="firma">Entrega / Responsable transporte</div>
+            <div class="firma">Recibe / Cliente</div>
+        </div>
+    </body>
+    </html>
+    """
+
 # --- Lista de estilos global ---
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
            "Session IPA", "IPA", "Maracuyá", "Barley Wine", "Trigo", "Catharina Sour",
@@ -697,7 +997,8 @@ if BACKEND_SEGURO_ACTIVO:
     st.success("🔒 Protección transaccional activa: bloqueo simultáneo e idempotencia habilitados.")
 else:
     st.warning(
-        "🟡"
+        "🟡 Protección local activa. Para impedir también choques entre usuarios o pestañas distintas, "
+        "configura el Apps Script incluido con esta versión."
     )
 
 # ---------- ESTADO Y DATOS ACTUALES DE BARRILES ----------
@@ -818,6 +1119,7 @@ except Exception as exc:
         st.warning(f"No se pudieron cargar los clientes: {exc}")
 
 cliente = "Planta Castiza"
+direccion_cliente = ""
 if estado_barril == "Despacho":
     if lista_clientes:
         cliente = st.selectbox(
@@ -998,6 +1300,87 @@ observaciones = st.text_area(
     key="mov_observaciones",
     disabled=st.session_state.movimiento_guardando,
 )
+
+# ---------- ORDEN DE PEDIDO E IMPRESIÓN ----------
+if estado_barril == "Despacho":
+    st.markdown("---")
+    st.markdown(
+        "<h3 style='color:#fff3aa;'>📄 Orden de pedido y formatos de despacho</h3>",
+        unsafe_allow_html=True,
+    )
+
+    items_orden = construir_items_orden_despacho(
+        codigo_barril, estilo_cerveza, lote_producto, latas, observaciones
+    )
+
+    if items_orden:
+        st.caption("Vista previa de los productos que irán en los formatos F-TRZ-002 y F-TRZ-003")
+        st.dataframe(pd.DataFrame(items_orden), hide_index=True, use_container_width=True)
+    else:
+        st.info("Selecciona un barril y/o completa las latas para generar la orden de pedido.")
+
+    ruta_plantilla = buscar_ruta_plantilla_despacho()
+    archivo_plantilla_subido = None
+    if ruta_plantilla:
+        st.caption(f"Plantilla encontrada: {os.path.basename(ruta_plantilla)}")
+    else:
+        st.warning(
+            f"No encontré {NOMBRE_PLANTILLA_DESPACHO} en el repositorio. "
+            "Puedes subirlo temporalmente aquí o agregarlo a GitHub junto a la app."
+        )
+        archivo_plantilla_subido = st.file_uploader(
+            "Subir plantilla de formatos de despacho",
+            type=["xlsx"],
+            key="plantilla_formatos_despacho",
+            disabled=st.session_state.movimiento_guardando,
+        )
+
+    puede_generar_orden = bool(items_orden) and bool(ruta_plantilla or archivo_plantilla_subido)
+    if st.button(
+        "📄 Generar orden de pedido",
+        key="generar_orden_pedido",
+        use_container_width=True,
+        disabled=st.session_state.movimiento_guardando or not puede_generar_orden,
+    ):
+        try:
+            archivo_excel = generar_formatos_despacho_excel(
+                items_orden,
+                cliente,
+                direccion_cliente,
+                responsable,
+                observaciones,
+                archivo_subido=archivo_plantilla_subido,
+            )
+            nombre_archivo = (
+                f"orden_despacho_{nombre_archivo_seguro(cliente)}_"
+                f"{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
+            )
+            st.session_state.orden_despacho_generada = {
+                "archivo": archivo_excel,
+                "nombre": nombre_archivo,
+                "html": generar_html_impresion_orden(
+                    items_orden, cliente, direccion_cliente, responsable, observaciones
+                ),
+            }
+            st.success("Orden generada correctamente. Puedes descargar el Excel o imprimir la vista rápida.")
+        except Exception as exc:
+            st.error(f"No fue posible generar la orden: {exc}")
+
+    orden_generada = st.session_state.get("orden_despacho_generada")
+    if orden_generada:
+        st.download_button(
+            "⬇️ Descargar formatos diligenciados en Excel",
+            data=orden_generada["archivo"],
+            file_name=orden_generada["nombre"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+        )
+        st.caption(
+            "El botón de impresión abre el diálogo del navegador para una copia rápida; "
+            "el Excel conserva los formatos oficiales para impresión final."
+        )
+        import streamlit.components.v1 as components
+        components.html(orden_generada["html"], height=520, scrolling=True)
 
 st.caption(
     "Al presionar Guardar, el botón se bloquea hasta terminar. No es necesario volver a hacer clic aunque la conexión esté lenta."
