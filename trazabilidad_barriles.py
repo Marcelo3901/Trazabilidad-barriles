@@ -12,6 +12,15 @@ import json
 import re
 import time
 import uuid
+import zipfile
+import html as html_lib
+from copy import copy
+from pathlib import Path
+from zoneinfo import ZoneInfo
+
+from openpyxl import load_workbook
+from openpyxl.drawing.image import Image as XLImage
+from openpyxl.styles import Alignment, Font
 
 # La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
 
@@ -686,6 +695,644 @@ def registrar_lista_despacho(barriles, datos_comunes, operacion_general_id):
         any(r["reintentable"] for r in fallidos),
         {"resultados": resultados, "detalles": detalles, "partial": bool(exitosos)},
     )
+
+# ---------- ORDEN GENERAL DIARIA Y FORMATOS F-TRZ ----------
+ZONA_HORARIA_COLOMBIA = ZoneInfo("America/Bogota")
+NOMBRES_PLANTILLA_FORMATOS = (
+    "FORMATOS_DE_DESPACHOS.xlsx",
+    "FORMATOS DE DESPACHOS.xlsx",
+    "FORMATOS DE DESPACHOS(1).xlsx",
+)
+
+
+def ahora_colombia():
+    return datetime.now(ZONA_HORARIA_COLOMBIA)
+
+
+def limpiar_observacion_operacion(valor):
+    texto = "" if valor is None else str(valor).strip()
+    texto = re.sub(r"\s*\[OP:[^\]]+\]\s*", " ", texto)
+    return " ".join(texto.split())
+
+
+def capacidad_barril_desde_codigo(codigo):
+    codigo = normalizar_codigo_barril(codigo)
+    return {"20": 20, "30": 30, "58": 58}.get(codigo[:2])
+
+
+def nombre_producto_barril(codigo, estilo):
+    capacidad = capacidad_barril_desde_codigo(codigo)
+    partes = ["Barril"]
+    if capacidad:
+        partes.append(f"{capacidad} L")
+    if str(estilo).strip():
+        partes.append(str(estilo).strip())
+    return " - ".join(partes)
+
+
+def nombre_producto_latas(estilo):
+    estilo = str(estilo).strip()
+    return f"Latas 330 mL - {estilo}" if estilo else "Latas 330 mL"
+
+
+def mapa_direcciones_clientes_fresco():
+    try:
+        clientes = cargar_csv_publico_fresco(HOJA_CLIENTES)
+    except Exception:
+        return {}
+    if clientes.empty or "Nombre" not in clientes.columns or "Dirección" not in clientes.columns:
+        return {}
+    mapa = {}
+    for _, fila in clientes.iterrows():
+        nombre = str(fila.get("Nombre", "") or "").strip()
+        direccion = str(fila.get("Dirección", "") or "").strip()
+        if nombre:
+            mapa[normalizar_clave(nombre)] = direccion
+    return mapa
+
+
+def registrar_pedido_local_orden_general(
+    barriles, latas, cliente, responsable, observaciones, direccion=""
+):
+    """Mantiene visible el pedido recién guardado mientras Google Sheets termina de actualizar."""
+    fecha = ahora_colombia().date().isoformat()
+    registros = list(st.session_state.get("orden_general_registros_locales", []))
+    for barril in barriles:
+        codigo = normalizar_codigo_barril(barril.get("codigo", ""))
+        registros.append({
+            "Fecha": fecha,
+            "Cliente": str(cliente).strip(),
+            "Dirección": str(direccion or "").strip(),
+            "Producto": nombre_producto_barril(codigo, barril.get("estilo", "")),
+            "Cantidad": 1,
+            "Lote": str(barril.get("lote", "") or "").strip(),
+            "Código del Barril": codigo,
+            "Responsable": str(responsable).strip(),
+            "Observaciones": limpiar_observacion_operacion(observaciones),
+            "Tipo": "Barril",
+        })
+    for lata in latas:
+        registros.append({
+            "Fecha": fecha,
+            "Cliente": str(cliente).strip(),
+            "Dirección": str(direccion or "").strip(),
+            "Producto": nombre_producto_latas(lata.get("estilo", "")),
+            "Cantidad": int(lata.get("cantidad", 0) or 0),
+            "Lote": str(lata.get("lote", "") or "").strip(),
+            "Código del Barril": "",
+            "Responsable": str(responsable).strip(),
+            "Observaciones": limpiar_observacion_operacion(observaciones),
+            "Tipo": "Latas",
+        })
+    st.session_state.orden_general_registros_locales = registros[-500:]
+    st.session_state.pop("documentos_orden_general", None)
+
+
+def _pedidos_barriles_sheet(fecha_obj, direcciones):
+    datos = cargar_datos_barriles_frescos()
+    if datos.empty:
+        return []
+    fechas = datos["Marca temporal"]
+    mascara = (
+        fechas.notna()
+        & fechas.dt.date.eq(fecha_obj)
+        & datos["_estado_key"].eq("despacho")
+    )
+    filas = []
+    for _, fila in datos.loc[mascara].iterrows():
+        codigo = normalizar_codigo_barril(fila.get("Código", ""))
+        cliente = str(fila.get("Cliente", "") or "").strip()
+        if not codigo or not cliente:
+            continue
+        estilo = str(fila.get("Estilo", "") or "").strip()
+        filas.append({
+            "Fecha": fecha_obj.isoformat(),
+            "Cliente": cliente,
+            "Dirección": direcciones.get(normalizar_clave(cliente), ""),
+            "Producto": nombre_producto_barril(codigo, estilo),
+            "Cantidad": 1,
+            "Lote": str(fila.get("Lote", "") or "").strip(),
+            "Código del Barril": codigo,
+            "Responsable": str(fila.get("Responsable", "") or "").strip(),
+            "Observaciones": limpiar_observacion_operacion(fila.get("Observaciones", "")),
+            "Tipo": "Barril",
+        })
+    return filas
+
+
+def _pedidos_latas_sheet(fecha_obj, direcciones):
+    try:
+        datos = cargar_csv_publico_fresco(HOJA_MOVIMIENTOS_LATAS)
+    except Exception:
+        return []
+    if datos.empty:
+        return []
+    requeridas = {"Marca temporal", "Estilo", "Cantidad", "Lote", "Cliente"}
+    if not requeridas.issubset(datos.columns):
+        return []
+
+    fechas = convertir_fechas_sheet(datos["Marca temporal"])
+    estados = (
+        datos["Estado"].map(normalizar_clave)
+        if "Estado" in datos.columns
+        else pd.Series("", index=datos.index)
+    )
+    cantidades = limpiar_cantidades(datos["Cantidad"])
+    mascara = fechas.notna() & fechas.dt.date.eq(fecha_obj) & estados.isin(["", "despacho"])
+    filas = []
+    for indice in datos.index[mascara]:
+        cliente = str(datos.at[indice, "Cliente"] or "").strip()
+        cantidad = int(cantidades.at[indice])
+        if not cliente or cantidad <= 0:
+            continue
+        estilo = str(datos.at[indice, "Estilo"] or "").strip()
+        responsable = (
+            str(datos.at[indice, "Responsable"] or "").strip()
+            if "Responsable" in datos.columns else ""
+        )
+        observaciones = (
+            limpiar_observacion_operacion(datos.at[indice, "Observaciones"])
+            if "Observaciones" in datos.columns else ""
+        )
+        filas.append({
+            "Fecha": fecha_obj.isoformat(),
+            "Cliente": cliente,
+            "Dirección": direcciones.get(normalizar_clave(cliente), ""),
+            "Producto": nombre_producto_latas(estilo),
+            "Cantidad": cantidad,
+            "Lote": str(datos.at[indice, "Lote"] or "").strip(),
+            "Código del Barril": "",
+            "Responsable": responsable,
+            "Observaciones": observaciones,
+            "Tipo": "Latas",
+        })
+    return filas
+
+
+def combinar_pedidos_sheet_y_locales(filas_sheet, fecha_obj):
+    columnas = [
+        "Fecha", "Cliente", "Dirección", "Producto", "Cantidad", "Lote",
+        "Código del Barril", "Responsable", "Observaciones", "Tipo"
+    ]
+    locales = [
+        fila for fila in st.session_state.get("orden_general_registros_locales", [])
+        if str(fila.get("Fecha", "")) == fecha_obj.isoformat()
+    ]
+    sheet_df = pd.DataFrame(filas_sheet, columns=columnas)
+    local_df = pd.DataFrame(locales, columns=columnas)
+
+    barriles_sheet = sheet_df[sheet_df["Tipo"].eq("Barril")].copy() if not sheet_df.empty else pd.DataFrame(columns=columnas)
+    barriles_local = local_df[local_df["Tipo"].eq("Barril")].copy() if not local_df.empty else pd.DataFrame(columns=columnas)
+    barriles = pd.concat([barriles_sheet, barriles_local], ignore_index=True)
+    if not barriles.empty:
+        barriles["_cliente_key"] = barriles["Cliente"].map(normalizar_clave)
+        barriles["_codigo_key"] = barriles["Código del Barril"].map(normalizar_codigo_barril)
+        barriles.drop_duplicates(["_cliente_key", "_codigo_key"], keep="first", inplace=True)
+        barriles.drop(columns=["_cliente_key", "_codigo_key"], inplace=True)
+
+    def agrupar_latas(df):
+        if df.empty:
+            return pd.DataFrame(columns=columnas)
+        latas_df = df[df["Tipo"].eq("Latas")].copy()
+        if latas_df.empty:
+            return pd.DataFrame(columns=columnas)
+        latas_df["Cantidad"] = pd.to_numeric(latas_df["Cantidad"], errors="coerce").fillna(0).astype(int)
+        claves = ["Fecha", "Cliente", "Dirección", "Producto", "Lote", "Código del Barril", "Tipo"]
+        agrupado = (
+            latas_df.groupby(claves, dropna=False, as_index=False)
+            .agg({
+                "Cantidad": "sum",
+                "Responsable": lambda s: " / ".join(dict.fromkeys(str(v).strip() for v in s if str(v).strip())),
+                "Observaciones": lambda s: " | ".join(dict.fromkeys(str(v).strip() for v in s if str(v).strip())),
+            })
+        )
+        return agrupado[columnas]
+
+    latas_sheet = agrupar_latas(sheet_df)
+    latas_local = agrupar_latas(local_df)
+    if latas_sheet.empty:
+        latas = latas_local
+    elif latas_local.empty:
+        latas = latas_sheet
+    else:
+        claves = ["Fecha", "Cliente", "Dirección", "Producto", "Lote", "Código del Barril", "Tipo"]
+        unidos = latas_sheet.merge(
+            latas_local,
+            on=claves,
+            how="outer",
+            suffixes=("_sheet", "_local"),
+        )
+        unidos["Cantidad"] = unidos[["Cantidad_sheet", "Cantidad_local"]].max(axis=1).fillna(0).astype(int)
+        for campo in ("Responsable", "Observaciones"):
+            unidos[campo] = unidos[f"{campo}_sheet"].fillna("")
+            faltan = unidos[campo].astype(str).str.strip().eq("")
+            unidos.loc[faltan, campo] = unidos.loc[faltan, f"{campo}_local"].fillna("")
+        latas = unidos[claves + ["Cantidad", "Responsable", "Observaciones"]]
+        latas = latas[columnas]
+
+    resultado = pd.concat([barriles, latas], ignore_index=True)
+    if resultado.empty:
+        return resultado
+    resultado["Cantidad"] = pd.to_numeric(resultado["Cantidad"], errors="coerce").fillna(0).astype(int)
+    resultado["_cliente_key"] = resultado["Cliente"].map(normalizar_clave)
+    resultado["_tipo_orden"] = resultado["Tipo"].map({"Barril": 0, "Latas": 1}).fillna(9)
+    resultado.sort_values(
+        ["_cliente_key", "_tipo_orden", "Producto", "Lote", "Código del Barril"],
+        inplace=True,
+        kind="stable",
+    )
+    resultado.drop(columns=["_cliente_key", "_tipo_orden"], inplace=True)
+    resultado.reset_index(drop=True, inplace=True)
+    return resultado
+
+
+def cargar_orden_general_del_dia(fecha_obj):
+    direcciones = mapa_direcciones_clientes_fresco()
+    filas = _pedidos_barriles_sheet(fecha_obj, direcciones)
+    filas.extend(_pedidos_latas_sheet(fecha_obj, direcciones))
+    return combinar_pedidos_sheet_y_locales(filas, fecha_obj)
+
+
+def localizar_plantilla_formatos():
+    bases = []
+    try:
+        bases.append(Path(__file__).resolve().parent)
+    except NameError:
+        pass
+    bases.extend([Path.cwd(), Path("/mnt/data")])
+    for base in bases:
+        for nombre in NOMBRES_PLANTILLA_FORMATOS:
+            candidato = base / nombre
+            if candidato.exists():
+                return candidato
+    raise FileNotFoundError(
+        "No se encontró la plantilla de formatos. Sube FORMATOS_DE_DESPACHOS.xlsx "
+        "en la misma carpeta del archivo principal de Streamlit."
+    )
+
+
+def combinar_textos_unicos(valores, separador=" | "):
+    salida = []
+    vistos = set()
+    for valor in valores:
+        texto = str(valor or "").strip()
+        clave = normalizar_clave(texto)
+        if texto and clave not in vistos:
+            vistos.add(clave)
+            salida.append(texto)
+    return separador.join(salida)
+
+
+def construir_bloques_clientes(pedidos_df):
+    bloques = []
+    if pedidos_df is None or pedidos_df.empty:
+        return bloques
+    grupos = []
+    for cliente, grupo in pedidos_df.groupby("Cliente", sort=False, dropna=False):
+        grupos.append((str(cliente), grupo.reset_index(drop=True)))
+    grupos.sort(key=lambda par: normalizar_clave(par[0]))
+
+    for cliente, grupo in grupos:
+        direccion = combinar_textos_unicos(grupo["Dirección"].tolist(), " / ")
+        observaciones = combinar_textos_unicos(grupo["Observaciones"].tolist())
+        responsables = combinar_textos_unicos(grupo["Responsable"].tolist(), " / ")
+        items = grupo.to_dict("records")
+        for inicio in range(0, len(items), 3):
+            bloques.append({
+                "cliente": cliente,
+                "direccion": direccion,
+                "observaciones": observaciones,
+                "responsables": responsables,
+                "continuacion": inicio > 0,
+                "items": items[inicio:inicio + 3],
+            })
+    return bloques
+
+
+def dividir_paginas(lista, tamano=9):
+    if not lista:
+        return [[]]
+    return [lista[i:i + tamano] for i in range(0, len(lista), tamano)]
+
+
+def leer_logo_bytes_plantilla(ruta_plantilla=None):
+    ruta = Path(ruta_plantilla or localizar_plantilla_formatos())
+    try:
+        with zipfile.ZipFile(ruta, "r") as archivo:
+            imagenes = sorted(
+                nombre for nombre in archivo.namelist()
+                if nombre.startswith("xl/media/")
+                and nombre.lower().endswith((".png", ".jpg", ".jpeg", ".gif"))
+            )
+            return archivo.read(imagenes[0]) if imagenes else b""
+    except Exception:
+        return b""
+
+
+def copiar_hoja_con_imagenes(libro, origen, titulo, logo_bytes=b""):
+    destino = libro.copy_worksheet(origen)
+    destino.title = titulo
+    imagenes_origen = list(getattr(origen, "_images", []))
+    if logo_bytes and imagenes_origen:
+        referencia = imagenes_origen[0]
+        buffer_imagen = io.BytesIO(logo_bytes)
+        nueva = XLImage(buffer_imagen)
+        nueva._buffer_orden_general = buffer_imagen
+        nueva.width = referencia.width
+        nueva.height = referencia.height
+        nueva.anchor = copy(referencia.anchor)
+        destino.add_image(nueva)
+    return destino
+
+
+def preparar_hojas_paginas(libro, nombre_base, total_paginas, logo_bytes=b""):
+    origen = libro[nombre_base]
+    hojas = []
+    origen.title = nombre_base if total_paginas == 1 else f"{nombre_base} P1"
+    hojas.append(origen)
+    for numero in range(2, total_paginas + 1):
+        hojas.append(
+            copiar_hoja_con_imagenes(
+                libro, origen, f"{nombre_base} P{numero}", logo_bytes
+            )
+        )
+    return hojas
+
+
+def configurar_impresion_hoja(hoja, area):
+    hoja.sheet_view.showGridLines = False
+    hoja.print_area = area
+    hoja.page_setup.orientation = "landscape"
+    hoja.page_setup.fitToWidth = 1
+    hoja.page_setup.fitToHeight = 1
+    hoja.sheet_properties.pageSetUpPr.fitToPage = True
+    hoja.print_options.horizontalCentered = True
+    hoja.print_options.verticalCentered = True
+
+
+def escribir_texto_celda(hoja, coordenada, valor, horizontal=None, tamano=None, negrita=None):
+    celda = hoja[coordenada]
+    celda.value = valor
+    alineacion = copy(celda.alignment)
+    celda.alignment = Alignment(
+        horizontal=horizontal or alineacion.horizontal,
+        vertical=alineacion.vertical or "center",
+        text_rotation=alineacion.text_rotation,
+        wrap_text=True,
+        shrink_to_fit=alineacion.shrink_to_fit,
+        indent=alineacion.indent,
+    )
+    if tamano is not None or negrita is not None:
+        fuente = copy(celda.font)
+        celda.font = Font(
+            name=fuente.name,
+            sz=tamano if tamano is not None else fuente.sz,
+            bold=negrita if negrita is not None else fuente.bold,
+            italic=fuente.italic,
+            vertAlign=fuente.vertAlign,
+            underline=fuente.underline,
+            strike=fuente.strike,
+            color=fuente.color,
+        )
+
+
+def limpiar_bloques_formato(hoja, ultima_columna):
+    for indice in range(9):
+        inicio = 7 + indice * 3
+        for columna in range(1, ultima_columna + 1):
+            for fila in range(inicio, inicio + 3):
+                celda = hoja.cell(fila, columna)
+                if celda.__class__.__name__ != "MergedCell":
+                    celda.value = None
+
+
+def llenar_formato_002(
+    hoja, bloques, fecha_obj, pagina, total_paginas,
+    conductor, realiza, supervisa, calidad_cumple, limpieza_cumple
+):
+    limpiar_bloques_formato(hoja, 11)
+    hoja["K4"] = f"Página {pagina} de {total_paginas}"
+    fecha_texto = fecha_obj.strftime("%d/%m/%Y")
+    for indice, bloque in enumerate(bloques):
+        inicio = 7 + indice * 3
+        cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
+        escribir_texto_celda(hoja, f"A{inicio}", fecha_texto, "center", 9)
+        escribir_texto_celda(hoja, f"B{inicio}", cliente, "center", 8)
+        escribir_texto_celda(hoja, f"K{inicio}", bloque["observaciones"], "center", 8)
+        hoja[f"G{inicio}"] = "X" if calidad_cumple else ""
+        hoja[f"H{inicio}"] = "" if calidad_cumple else "X"
+        hoja[f"I{inicio}"] = "X" if limpieza_cumple else ""
+        hoja[f"J{inicio}"] = "" if limpieza_cumple else "X"
+        for desplazamiento, item in enumerate(bloque["items"]):
+            fila = inicio + desplazamiento
+            escribir_texto_celda(hoja, f"C{fila}", item.get("Producto", ""), "left", 8)
+            escribir_texto_celda(hoja, f"D{fila}", int(item.get("Cantidad", 0) or 0), "center", 9)
+            escribir_texto_celda(hoja, f"E{fila}", item.get("Lote", ""), "center", 8)
+            escribir_texto_celda(hoja, f"F{fila}", item.get("Código del Barril", ""), "center", 9)
+
+    escribir_texto_celda(hoja, "C34", conductor, "left", 9)
+    escribir_texto_celda(hoja, "B35", realiza, "left", 9)
+    escribir_texto_celda(hoja, "B36", supervisa, "left", 9)
+    configurar_impresion_hoja(hoja, "A1:K36")
+
+
+def llenar_formato_003(
+    hoja, bloques, fecha_obj, pagina, total_paginas, realiza, supervisa
+):
+    limpiar_bloques_formato(hoja, 8)
+    hoja["H4"] = f"Página {pagina} de {total_paginas}"
+    fecha_texto = fecha_obj.strftime("%d/%m/%Y")
+    for indice, bloque in enumerate(bloques):
+        inicio = 7 + indice * 3
+        cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
+        cliente_direccion = cliente + ("\n" + bloque["direccion"] if bloque["direccion"] else "")
+        escribir_texto_celda(hoja, f"A{inicio}", fecha_texto, "center", 9)
+        escribir_texto_celda(hoja, f"B{inicio}", cliente_direccion, "center", 8)
+        escribir_texto_celda(hoja, f"G{inicio}", bloque["observaciones"], "center", 8)
+        for desplazamiento, item in enumerate(bloque["items"]):
+            fila = inicio + desplazamiento
+            escribir_texto_celda(hoja, f"C{fila}", item.get("Producto", ""), "left", 8)
+            escribir_texto_celda(hoja, f"D{fila}", int(item.get("Cantidad", 0) or 0), "center", 9)
+            hoja[f"E{fila}"] = ""
+            hoja[f"F{fila}"] = ""
+        hoja[f"H{inicio}"] = ""
+
+    escribir_texto_celda(hoja, "B34", realiza, "left", 9)
+    escribir_texto_celda(hoja, "B35", supervisa, "left", 9)
+    configurar_impresion_hoja(hoja, "A1:H35")
+
+
+def generar_archivo_formatos_orden_general(
+    pedidos_df, fecha_obj, conductor="", realiza="", supervisa="",
+    calidad_cumple=True, limpieza_cumple=True
+):
+    bloques = construir_bloques_clientes(pedidos_df)
+    paginas = dividir_paginas(bloques, 9)
+    ruta_plantilla = localizar_plantilla_formatos()
+    logo_bytes = leer_logo_bytes_plantilla(ruta_plantilla)
+    libro = load_workbook(ruta_plantilla)
+
+    hojas_002 = preparar_hojas_paginas(
+        libro, "F-TRZ-002", len(paginas), logo_bytes
+    )
+    hojas_003 = preparar_hojas_paginas(
+        libro, "F-TRZ-003", len(paginas), logo_bytes
+    )
+    libro._sheets = hojas_002 + hojas_003
+
+    for numero, bloques_pagina in enumerate(paginas, start=1):
+        llenar_formato_002(
+            hojas_002[numero - 1], bloques_pagina, fecha_obj, numero, len(paginas),
+            conductor, realiza, supervisa, calidad_cumple, limpieza_cumple
+        )
+        llenar_formato_003(
+            hojas_003[numero - 1], bloques_pagina, fecha_obj, numero, len(paginas),
+            realiza, supervisa
+        )
+
+    libro.active = 0
+    salida = io.BytesIO()
+    libro.save(salida)
+    salida.seek(0)
+    return salida.getvalue(), bloques, paginas
+
+
+def extraer_logo_plantilla_base64():
+    datos = leer_logo_bytes_plantilla()
+    return base64.b64encode(datos).decode("ascii") if datos else ""
+
+
+def _html_items_bloque(bloque):
+    items = list(bloque.get("items", []))
+    while len(items) < 3:
+        items.append({})
+    return items[:3]
+
+
+def generar_html_impresion_orden_general(
+    pedidos_df, fecha_obj, conductor="", realiza="", supervisa="",
+    calidad_cumple=True, limpieza_cumple=True
+):
+    bloques = construir_bloques_clientes(pedidos_df)
+    paginas = dividir_paginas(bloques, 9)
+    logo = extraer_logo_plantilla_base64()
+    logo_html = f'<img class="logo" src="data:image/png;base64,{logo}">' if logo else '<div class="logo-text">CASTIZA</div>'
+    fecha_texto = fecha_obj.strftime("%d/%m/%Y")
+
+    def e(valor):
+        return html_lib.escape(str(valor or ""))
+
+    paginas_html = []
+    total = len(paginas)
+    for numero, bloques_pagina in enumerate(paginas, start=1):
+        filas_002 = []
+        for bloque in bloques_pagina:
+            items = _html_items_bloque(bloque)
+            cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
+            for indice, item in enumerate(items):
+                celdas = []
+                if indice == 0:
+                    celdas.extend([
+                        f'<td rowspan="3">{e(fecha_texto)}</td>',
+                        f'<td rowspan="3">{e(cliente)}</td>',
+                    ])
+                celdas.extend([
+                    f'<td class="left">{e(item.get("Producto", ""))}</td>',
+                    f'<td>{e(item.get("Cantidad", ""))}</td>',
+                    f'<td>{e(item.get("Lote", ""))}</td>',
+                    f'<td>{e(item.get("Código del Barril", ""))}</td>',
+                ])
+                if indice == 0:
+                    celdas.extend([
+                        f'<td rowspan="3">{"X" if calidad_cumple else ""}</td>',
+                        f'<td rowspan="3">{"" if calidad_cumple else "X"}</td>',
+                        f'<td rowspan="3">{"X" if limpieza_cumple else ""}</td>',
+                        f'<td rowspan="3">{"" if limpieza_cumple else "X"}</td>',
+                        f'<td rowspan="3" class="small">{e(bloque["observaciones"])}</td>',
+                    ])
+                filas_002.append("<tr>" + "".join(celdas) + "</tr>")
+        for _ in range(9 - len(bloques_pagina)):
+            for indice in range(3):
+                celdas = []
+                if indice == 0:
+                    celdas.extend(['<td rowspan="3"></td>', '<td rowspan="3"></td>'])
+                celdas.extend(['<td></td>', '<td></td>', '<td></td>', '<td></td>'])
+                if indice == 0:
+                    celdas.extend([
+                        '<td rowspan="3"></td>', '<td rowspan="3"></td>',
+                        '<td rowspan="3"></td>', '<td rowspan="3"></td>',
+                        '<td rowspan="3"></td>'
+                    ])
+                filas_002.append("<tr>" + "".join(celdas) + "</tr>")
+        paginas_html.append(f'''
+        <section class="page legal">
+          <header>{logo_html}<div class="title">Formato de Pedidos y distribución de producto terminado</div>
+          <div class="meta">Programa P-TRZ-10<br>Código: F-TRZ-002<br>Versión: 01<br>Página {numero} de {total}</div></header>
+          <table><thead><tr><th rowspan="2">Fecha</th><th rowspan="2">Nombre del Cliente</th><th rowspan="2">Producto</th><th rowspan="2">Cantidad</th><th rowspan="2">Lote</th><th rowspan="2">Código del Barril</th><th colspan="2">Calidad del producto</th><th colspan="2">Limpieza del vehículo</th><th rowspan="2">Observaciones</th></tr>
+          <tr><th>C</th><th>NC</th><th>C</th><th>NC</th></tr></thead><tbody>{''.join(filas_002)}</tbody></table>
+          <div class="footer-grid"><div><b>Responsable del transporte:</b> {e(conductor)}</div><div><b>Realiza:</b> {e(realiza)}</div><div><b>Supervisa:</b> {e(supervisa)}</div><div><b>Convenciones:</b> C: Cumple · NC: No cumple</div></div>
+        </section>''')
+
+    for numero, bloques_pagina in enumerate(paginas, start=1):
+        filas_003 = []
+        for bloque in bloques_pagina:
+            items = _html_items_bloque(bloque)
+            cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
+            cliente_dir = e(cliente) + ("<br>" + e(bloque["direccion"]) if bloque["direccion"] else "")
+            for indice, item in enumerate(items):
+                celdas = []
+                if indice == 0:
+                    celdas.extend([
+                        f'<td rowspan="3">{e(fecha_texto)}</td>',
+                        f'<td rowspan="3">{cliente_dir}</td>',
+                    ])
+                celdas.extend([
+                    f'<td class="left">{e(item.get("Producto", ""))}</td>',
+                    f'<td>{e(item.get("Cantidad", ""))}</td>',
+                ])
+                if indice == 0:
+                    celdas.extend([
+                        '<td rowspan="3"></td>', '<td rowspan="3"></td>',
+                        f'<td rowspan="3" class="small">{e(bloque["observaciones"])}</td>',
+                        '<td rowspan="3"></td>',
+                    ])
+                filas_003.append("<tr>" + "".join(celdas) + "</tr>")
+        for _ in range(9 - len(bloques_pagina)):
+            for indice in range(3):
+                celdas = []
+                if indice == 0:
+                    celdas.extend(['<td rowspan="3"></td>', '<td rowspan="3"></td>'])
+                celdas.extend(['<td></td>', '<td></td>'])
+                if indice == 0:
+                    celdas.extend([
+                        '<td rowspan="3"></td>', '<td rowspan="3"></td>',
+                        '<td rowspan="3"></td>', '<td rowspan="3"></td>'
+                    ])
+                filas_003.append("<tr>" + "".join(celdas) + "</tr>")
+        paginas_html.append(f'''
+        <section class="page a4">
+          <header>{logo_html}<div class="title">Formato de orden de entrega de producto</div>
+          <div class="meta">Programa P-TRZ-10<br>Código: F-TRZ-003<br>Versión: 001<br>Página {numero} de {total}</div></header>
+          <table><thead><tr><th rowspan="2">Fecha</th><th rowspan="2">Nombre del Cliente y Dirección</th><th rowspan="2">Producto</th><th rowspan="2">Cantidad</th><th colspan="2">Pedido Correcto</th><th rowspan="2">Observaciones</th><th rowspan="2">Firma de recibido</th></tr>
+          <tr><th>SI</th><th>NO</th></tr></thead><tbody>{''.join(filas_003)}</tbody></table>
+          <div class="footer-grid"><div><b>Realiza:</b> {e(realiza)}</div><div><b>Supervisa:</b> {e(supervisa)}</div></div>
+        </section>''')
+
+    return f'''<!doctype html><html><head><meta charset="utf-8"><style>
+      @page {{ size: landscape; margin: 7mm; }}
+      body {{ font-family: Arial, sans-serif; color:#111; margin:0; background:#eee; }}
+      .toolbar {{ position:sticky; top:0; z-index:10; padding:10px; text-align:center; background:#fff; border-bottom:1px solid #bbb; }}
+      .toolbar button {{ padding:10px 18px; font-size:16px; font-weight:bold; cursor:pointer; }}
+      .page {{ background:#fff; width:calc(100% - 24px); margin:12px auto; padding:8mm; box-sizing:border-box; page-break-after:always; }}
+      header {{ display:grid; grid-template-columns:140px 1fr 170px; align-items:center; border:1px solid #111; min-height:66px; }}
+      .logo {{ max-width:115px; max-height:62px; margin:auto; }} .logo-text {{font-weight:bold;text-align:center;}}
+      .title {{ text-align:center; font-weight:bold; font-size:17px; }} .meta {{ border-left:1px solid #111; padding:5px; font-size:11px; line-height:1.35; }}
+      table {{ width:100%; border-collapse:collapse; table-layout:fixed; font-size:9px; }}
+      th, td {{ border:1px solid #111; padding:3px; text-align:center; vertical-align:middle; height:18px; overflow-wrap:anywhere; }}
+      th {{ font-weight:bold; }} td.left {{ text-align:left; }} td.small {{ font-size:8px; }}
+      .footer-grid {{ display:grid; grid-template-columns:repeat(2,1fr); gap:8px 20px; margin-top:8px; font-size:10px; }}
+      @media print {{ body {{ background:#fff; }} .toolbar {{ display:none; }} .page {{ margin:0; width:100%; box-shadow:none; }} }}
+    </style></head><body><div class="toolbar"><button onclick="window.print()">🖨️ Imprimir los dos formatos</button></div>{''.join(paginas_html)}</body></html>'''
 
 def solicitar_guardado_movimiento():
     """Callback: el primer clic bloquea inmediatamente cualquier clic posterior."""
@@ -1375,6 +2022,21 @@ if st.session_state.get("movimiento_solicitado", False):
         else:
             marcar_movimiento_local_confirmado(codigo_barril, estado_barril, operacion_id)
 
+        if estado_barril == "Despacho":
+            direccion_orden = ""
+            try:
+                direccion_orden = str(dict_direcciones.get(cliente, "") or "").strip()
+            except Exception:
+                direccion_orden = ""
+            registrar_pedido_local_orden_general(
+                barriles_validados,
+                latas if incluye_latas == "Sí" else [],
+                cliente,
+                responsable,
+                observaciones,
+                direccion_orden,
+            )
+
         cargar_hoja_csv.clear()
         cargar_datos_barriles_ui.clear()
         limpiar_widgets_movimiento()
@@ -1398,6 +2060,153 @@ if st.session_state.get("movimiento_solicitado", False):
             detalles,
             conservar_operacion=reintentable or bool(respuesta_extra.get("partial")),
         )
+
+# ---------- ORDEN GENERAL DEL DÍA ----------
+st.markdown("---")
+st.markdown(
+    "<h2 style='color:#fff3aa;'>📦 Orden General</h2>",
+    unsafe_allow_html=True,
+)
+fecha_orden_general = ahora_colombia().date()
+st.caption(
+    "Reúne los despachos registrados hoy por cliente y prepara los formatos "
+    "F-TRZ-002 y F-TRZ-003."
+)
+
+col_fecha_orden, col_actualizar_orden = st.columns([3, 1])
+col_fecha_orden.info(f"Fecha de la orden: {fecha_orden_general.strftime('%d/%m/%Y')}")
+if col_actualizar_orden.button(
+    "🔄 Actualizar",
+    key="actualizar_orden_general_dia",
+    use_container_width=True,
+):
+    cargar_hoja_csv.clear()
+    cargar_datos_barriles_ui.clear()
+    st.session_state.pop("documentos_orden_general", None)
+    st.rerun()
+
+try:
+    pedidos_orden_general = cargar_orden_general_del_dia(fecha_orden_general)
+except Exception as exc:
+    pedidos_orden_general = pd.DataFrame()
+    st.error(f"No fue posible construir la orden general del día: {exc}")
+
+if pedidos_orden_general.empty:
+    st.info("Todavía no hay pedidos de despacho registrados para la fecha actual.")
+else:
+    tabla_visible = pedidos_orden_general[[
+        "Cliente", "Dirección", "Producto", "Cantidad", "Lote",
+        "Código del Barril", "Responsable", "Observaciones"
+    ]].copy()
+    st.dataframe(tabla_visible, hide_index=True, use_container_width=True)
+
+    total_clientes = pedidos_orden_general["Cliente"].nunique()
+    total_barriles = int((pedidos_orden_general["Tipo"] == "Barril").sum())
+    total_latas = int(
+        pedidos_orden_general.loc[
+            pedidos_orden_general["Tipo"] == "Latas", "Cantidad"
+        ].sum()
+    )
+    metrica_clientes, metrica_barriles, metrica_latas = st.columns(3)
+    metrica_clientes.metric("Clientes", total_clientes)
+    metrica_barriles.metric("Barriles", total_barriles)
+    metrica_latas.metric("Latas", total_latas)
+
+    responsables_dia = [
+        valor for valor in pedidos_orden_general["Responsable"].dropna().astype(str).unique()
+        if valor.strip()
+    ]
+    if "orden_general_realiza" not in st.session_state:
+        st.session_state.orden_general_realiza = responsables_dia[0] if len(responsables_dia) == 1 else ""
+
+    st.markdown("#### Datos para completar los formatos")
+    conductor_orden = st.text_input(
+        "Responsable del transporte / conductor",
+        key="orden_general_conductor",
+    )
+    col_realiza, col_supervisa = st.columns(2)
+    realiza_orden = col_realiza.text_input(
+        "Realiza",
+        key="orden_general_realiza",
+    )
+    supervisa_orden = col_supervisa.text_input(
+        "Supervisa",
+        key="orden_general_supervisa",
+    )
+    col_calidad, col_limpieza = st.columns(2)
+    calidad_cumple = col_calidad.checkbox(
+        "Calidad del producto: Cumple",
+        value=True,
+        key="orden_general_calidad_cumple",
+    )
+    limpieza_cumple = col_limpieza.checkbox(
+        "Limpieza del vehículo: Cumple",
+        value=True,
+        key="orden_general_limpieza_cumple",
+    )
+
+    if st.button(
+        "📄 Preparar formatos de despacho y entrega",
+        type="primary",
+        use_container_width=True,
+        key="preparar_documentos_orden_general",
+    ):
+        try:
+            archivo_excel, bloques_excel, paginas_excel = generar_archivo_formatos_orden_general(
+                pedidos_orden_general,
+                fecha_orden_general,
+                conductor=conductor_orden,
+                realiza=realiza_orden,
+                supervisa=supervisa_orden,
+                calidad_cumple=calidad_cumple,
+                limpieza_cumple=limpieza_cumple,
+            )
+            html_impresion = generar_html_impresion_orden_general(
+                pedidos_orden_general,
+                fecha_orden_general,
+                conductor=conductor_orden,
+                realiza=realiza_orden,
+                supervisa=supervisa_orden,
+                calidad_cumple=calidad_cumple,
+                limpieza_cumple=limpieza_cumple,
+            )
+            st.session_state.documentos_orden_general = {
+                "excel": archivo_excel,
+                "html": html_impresion,
+                "nombre": f"orden_general_castiza_{fecha_orden_general.strftime('%Y%m%d')}.xlsx",
+                "clientes": total_clientes,
+                "paginas": len(paginas_excel),
+                "lineas": len(pedidos_orden_general),
+            }
+            st.success(
+                f"Formatos preparados: {total_clientes} cliente(s), "
+                f"{len(pedidos_orden_general)} línea(s) y {len(paginas_excel)} página(s) por formato."
+            )
+        except Exception as exc:
+            st.session_state.pop("documentos_orden_general", None)
+            st.error(f"No se pudieron preparar los formatos: {exc}")
+
+    documentos_orden = st.session_state.get("documentos_orden_general")
+    if documentos_orden:
+        st.download_button(
+            "⬇️ Descargar F-TRZ-002 y F-TRZ-003",
+            data=documentos_orden["excel"],
+            file_name=documentos_orden["nombre"],
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            use_container_width=True,
+            key="descargar_documentos_orden_general",
+        )
+        st.caption(
+            "El archivo conserva ambos formatos y crea páginas adicionales automáticamente "
+            "cuando hay más clientes o productos de los que caben en una sola hoja."
+        )
+        import streamlit.components.v1 as components
+        with st.expander("🖨️ Imprimir los formatos", expanded=True):
+            components.html(
+                documentos_orden["html"],
+                height=850,
+                scrolling=True,
+            )
 
 # Mantener la variable utilizada por las secciones inferiores de búsqueda y últimos movimientos.
 url_datos = URL_DATOS_BARRILES_PUBLICA
