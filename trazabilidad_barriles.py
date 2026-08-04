@@ -1308,6 +1308,74 @@ def combinar_textos_unicos(valores, separador=" | "):
     return separador.join(salida)
 
 
+def compactar_pedidos_para_formatos(pedidos_df):
+    """Agrupa por cliente y producto para evitar repetir el mismo producto en los formatos.
+
+    - Suma las cantidades del mismo producto.
+    - Une los lotes unicos en una sola celda.
+    - Une los codigos de barril enviados, por ejemplo: 20001 - 20010.
+    """
+    if pedidos_df is None or pedidos_df.empty:
+        return pd.DataFrame(columns=(pedidos_df.columns if isinstance(pedidos_df, pd.DataFrame) else []))
+
+    df = pedidos_df.copy()
+    columnas = [
+        "Fecha", "Cliente", "Dirección", "Producto", "Cantidad", "Lote",
+        "Código del Barril", "Responsable", "Observaciones", "Tipo"
+    ]
+    for columna in columnas:
+        if columna not in df.columns:
+            df[columna] = "" if columna != "Cantidad" else 0
+
+    df["Cantidad"] = pd.to_numeric(df["Cantidad"], errors="coerce").fillna(0).astype(int)
+    df["_cliente_key"] = df["Cliente"].map(normalizar_clave)
+    df["_producto_key"] = df["Producto"].map(normalizar_clave)
+    df["_tipo_key"] = df["Tipo"].map(normalizar_clave)
+    df["_orden_original"] = range(len(df))
+
+    claves = ["_cliente_key", "_producto_key", "_tipo_key"]
+    filas = []
+    for _, grupo in df.groupby(claves, sort=False, dropna=False):
+        primero = grupo.sort_values("_orden_original", kind="stable").iloc[0]
+        cantidad = int(grupo["Cantidad"].sum())
+        lotes = combinar_textos_unicos(grupo["Lote"].tolist(), " - ")
+        codigos = combinar_textos_unicos(
+            [normalizar_codigo_barril(valor) for valor in grupo["Código del Barril"].tolist()],
+            " - ",
+        )
+        filas.append({
+            "Fecha": primero.get("Fecha", ""),
+            "Cliente": primero.get("Cliente", ""),
+            "Dirección": combinar_textos_unicos(grupo["Dirección"].tolist(), " / "),
+            "Producto": primero.get("Producto", ""),
+            "Cantidad": cantidad,
+            "Lote": lotes,
+            "Código del Barril": codigos,
+            "Responsable": combinar_textos_unicos(grupo["Responsable"].tolist(), " / "),
+            "Observaciones": combinar_textos_unicos(grupo["Observaciones"].tolist(), " | "),
+            "Tipo": primero.get("Tipo", ""),
+            "_orden_original": int(grupo["_orden_original"].min()),
+        })
+
+    resultado = pd.DataFrame(filas)
+    if resultado.empty:
+        return resultado
+    resultado["_cliente_key"] = resultado["Cliente"].map(normalizar_clave)
+    resultado["_tipo_orden"] = resultado["Tipo"].map({"Barril": 0, "Latas": 1}).fillna(9)
+    resultado.sort_values(
+        ["_cliente_key", "_tipo_orden", "_orden_original", "Producto"],
+        inplace=True,
+        kind="stable",
+    )
+    resultado.drop(
+        columns=["_cliente_key", "_tipo_orden", "_orden_original"],
+        inplace=True,
+        errors="ignore",
+    )
+    resultado.reset_index(drop=True, inplace=True)
+    return resultado[columnas]
+
+
 def construir_bloques_clientes(pedidos_df):
     bloques = []
     if pedidos_df is None or pedidos_df.empty:
@@ -1508,7 +1576,8 @@ def generar_archivo_formatos_orden_general(
     pedidos_df, fecha_obj, conductor="", realiza="", supervisa="",
     calidad_cumple=True, limpieza_cumple=True
 ):
-    bloques = construir_bloques_clientes(pedidos_df)
+    pedidos_compactos = compactar_pedidos_para_formatos(pedidos_df)
+    bloques = construir_bloques_clientes(pedidos_compactos)
     paginas = dividir_paginas(bloques, 9)
     ruta_plantilla = localizar_plantilla_formatos()
     logo_bytes = leer_logo_bytes_plantilla(ruta_plantilla)
@@ -1555,7 +1624,8 @@ def generar_html_impresion_orden_general(
     pedidos_df, fecha_obj, conductor="", realiza="", supervisa="",
     calidad_cumple=True, limpieza_cumple=True
 ):
-    bloques = construir_bloques_clientes(pedidos_df)
+    pedidos_compactos = compactar_pedidos_para_formatos(pedidos_df)
+    bloques = construir_bloques_clientes(pedidos_compactos)
     paginas = dividir_paginas(bloques, 9)
     logo = extraer_logo_plantilla_base64()
     logo_html = f'<img class="logo" src="data:image/png;base64,{logo}">' if logo else '<div class="logo-text">CASTIZA</div>'
@@ -2512,17 +2582,19 @@ else:
                 calidad_cumple=calidad_cumple,
                 limpieza_cumple=limpieza_cumple,
             )
+            pedidos_compactos_ui = compactar_pedidos_para_formatos(pedidos_orden_general)
             st.session_state.documentos_orden_general = {
                 "excel": archivo_excel,
                 "html": html_impresion,
                 "nombre": f"orden_general_castiza_{fecha_orden_general.strftime('%Y%m%d')}.xlsx",
                 "clientes": total_clientes,
                 "paginas": len(paginas_excel),
-                "lineas": len(pedidos_orden_general),
+                "lineas": len(pedidos_compactos_ui),
             }
             st.success(
                 f"Formatos preparados: {total_clientes} cliente(s), "
-                f"{len(pedidos_orden_general)} línea(s) y {len(paginas_excel)} página(s) por formato."
+                f"{len(pedidos_compactos_ui)} producto(s) consolidado(s) y "
+                f"{len(paginas_excel)} página(s) por formato."
             )
         except Exception as exc:
             st.session_state.pop("documentos_orden_general", None)
