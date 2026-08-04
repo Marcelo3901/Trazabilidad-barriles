@@ -1396,10 +1396,91 @@ def construir_bloques_clientes(pedidos_df):
                 "direccion": direccion,
                 "observaciones": observaciones,
                 "responsables": responsables,
-                "continuacion": inicio > 0,
                 "items": items[inicio:inicio + 3],
             })
     return bloques
+
+
+def agrupar_bloques_consecutivos_por_cliente(bloques):
+    """Devuelve grupos consecutivos del mismo cliente dentro de una pagina."""
+    grupos = []
+    indice = 0
+    while indice < len(bloques):
+        clave = normalizar_clave(bloques[indice].get("cliente", ""))
+        fin = indice
+        while (
+            fin + 1 < len(bloques)
+            and normalizar_clave(bloques[fin + 1].get("cliente", "")) == clave
+        ):
+            fin += 1
+        grupos.append({
+            "inicio_bloque": indice,
+            "fin_bloque": fin,
+            "cantidad_bloques": fin - indice + 1,
+            "cliente": bloques[indice].get("cliente", ""),
+            "direccion": bloques[indice].get("direccion", ""),
+        })
+        indice = fin + 1
+    return grupos
+
+
+def combinar_celdas_cliente_en_hoja(hoja, bloques, incluir_direccion=False):
+    """Combina verticalmente la columna B para bloques consecutivos del mismo cliente.
+
+    La plantilla trae una combinacion por cada bloque de tres productos. Cuando un
+    cliente ocupa varios bloques, se eliminan esas combinaciones parciales y se crea
+    una sola celda para todo el cliente en la pagina.
+    """
+    for grupo in agrupar_bloques_consecutivos_por_cliente(bloques):
+        inicio_bloque = grupo["inicio_bloque"]
+        fin_bloque = grupo["fin_bloque"]
+        fila_inicio = 7 + inicio_bloque * 3
+        fila_fin = 7 + fin_bloque * 3 + 2
+
+        cliente = str(grupo.get("cliente", "") or "").strip()
+        direccion = str(grupo.get("direccion", "") or "").strip()
+        valor = cliente + (("\n" + direccion) if incluir_direccion and direccion else "")
+
+        # Un solo bloque: se conserva la combinacion original de la plantilla.
+        if inicio_bloque == fin_bloque:
+            escribir_texto_celda(hoja, f"B{fila_inicio}", valor, "center", 8)
+            continue
+
+        celda_inicial = hoja.cell(fila_inicio, 2)
+        estilo_inicial = copy(celda_inicial._style)
+        borde_final = copy(hoja.cell(fila_fin, 2).border)
+
+        # Descombina solamente los rangos parciales de la columna B involucrados.
+        for rango in list(hoja.merged_cells.ranges):
+            if (
+                rango.min_col == 2
+                and rango.max_col == 2
+                and rango.min_row >= fila_inicio
+                and rango.max_row <= fila_fin
+            ):
+                hoja.unmerge_cells(str(rango))
+
+        hoja.cell(fila_inicio, 2)._style = estilo_inicial
+        hoja.cell(fila_fin, 2).border = borde_final
+        hoja.merge_cells(
+            start_row=fila_inicio,
+            start_column=2,
+            end_row=fila_fin,
+            end_column=2,
+        )
+        escribir_texto_celda(hoja, f"B{fila_inicio}", valor, "center", 8)
+
+
+def mapa_fusiones_cliente_html(bloques):
+    """Mapea el primer bloque de cada cliente al total de filas que debe abarcar."""
+    mapa = {}
+    for grupo in agrupar_bloques_consecutivos_por_cliente(bloques):
+        mapa[grupo["inicio_bloque"]] = {
+            "rowspan": grupo["cantidad_bloques"] * 3,
+            "cliente": grupo.get("cliente", ""),
+            "direccion": grupo.get("direccion", ""),
+        }
+    return mapa
 
 
 def dividir_paginas(lista, tamano=9):
@@ -1522,9 +1603,7 @@ def llenar_formato_002(
     fecha_texto = fecha_obj.strftime("%d/%m/%Y")
     for indice, bloque in enumerate(bloques):
         inicio = 7 + indice * 3
-        cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
         escribir_texto_celda(hoja, f"A{inicio}", fecha_texto, "center", 9)
-        escribir_texto_celda(hoja, f"B{inicio}", cliente, "center", 8)
         escribir_texto_celda(hoja, f"K{inicio}", bloque["observaciones"], "center", 8)
         asignar_valor_celda(hoja, f"G{inicio}", "X" if calidad_cumple else "")
         asignar_valor_celda(hoja, f"H{inicio}", "" if calidad_cumple else "X")
@@ -1536,6 +1615,8 @@ def llenar_formato_002(
             escribir_texto_celda(hoja, f"D{fila}", int(item.get("Cantidad", 0) or 0), "center", 9)
             escribir_texto_celda(hoja, f"E{fila}", item.get("Lote", ""), "center", 8)
             escribir_texto_celda(hoja, f"F{fila}", item.get("Código del Barril", ""), "center", 9)
+
+    combinar_celdas_cliente_en_hoja(hoja, bloques, incluir_direccion=False)
 
     escribir_texto_celda(hoja, "C34", conductor, "left", 9)
     escribir_texto_celda(hoja, "B35", realiza, "left", 9)
@@ -1551,10 +1632,7 @@ def llenar_formato_003(
     fecha_texto = fecha_obj.strftime("%d/%m/%Y")
     for indice, bloque in enumerate(bloques):
         inicio = 7 + indice * 3
-        cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
-        cliente_direccion = cliente + ("\n" + bloque["direccion"] if bloque["direccion"] else "")
         escribir_texto_celda(hoja, f"A{inicio}", fecha_texto, "center", 9)
-        escribir_texto_celda(hoja, f"B{inicio}", cliente_direccion, "center", 8)
         escribir_texto_celda(hoja, f"G{inicio}", bloque["observaciones"], "center", 8)
         for desplazamiento, item in enumerate(bloque["items"]):
             fila = inicio + desplazamiento
@@ -1566,6 +1644,8 @@ def llenar_formato_003(
         asignar_valor_celda(hoja, f"E{inicio}", "")
         asignar_valor_celda(hoja, f"F{inicio}", "")
         asignar_valor_celda(hoja, f"H{inicio}", "")
+
+    combinar_celdas_cliente_en_hoja(hoja, bloques, incluir_direccion=True)
 
     escribir_texto_celda(hoja, "B34", realiza, "left", 9)
     escribir_texto_celda(hoja, "B35", supervisa, "left", 9)
@@ -1638,16 +1718,18 @@ def generar_html_impresion_orden_general(
     total = len(paginas)
     for numero, bloques_pagina in enumerate(paginas, start=1):
         filas_002 = []
-        for bloque in bloques_pagina:
+        fusiones_cliente = mapa_fusiones_cliente_html(bloques_pagina)
+        for indice_bloque, bloque in enumerate(bloques_pagina):
             items = _html_items_bloque(bloque)
-            cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
             for indice, item in enumerate(items):
                 celdas = []
                 if indice == 0:
-                    celdas.extend([
-                        f'<td rowspan="3">{e(fecha_texto)}</td>',
-                        f'<td rowspan="3">{e(cliente)}</td>',
-                    ])
+                    celdas.append(f'<td rowspan="3">{e(fecha_texto)}</td>')
+                    fusion = fusiones_cliente.get(indice_bloque)
+                    if fusion:
+                        celdas.append(
+                            f'<td rowspan="{fusion["rowspan"]}">{e(fusion["cliente"])}</td>'
+                        )
                 celdas.extend([
                     f'<td class="left">{e(item.get("Producto", ""))}</td>',
                     f'<td>{e(item.get("Cantidad", ""))}</td>',
@@ -1687,17 +1769,21 @@ def generar_html_impresion_orden_general(
 
     for numero, bloques_pagina in enumerate(paginas, start=1):
         filas_003 = []
-        for bloque in bloques_pagina:
+        fusiones_cliente = mapa_fusiones_cliente_html(bloques_pagina)
+        for indice_bloque, bloque in enumerate(bloques_pagina):
             items = _html_items_bloque(bloque)
-            cliente = bloque["cliente"] + (" (continuación)" if bloque["continuacion"] else "")
-            cliente_dir = e(cliente) + ("<br>" + e(bloque["direccion"]) if bloque["direccion"] else "")
             for indice, item in enumerate(items):
                 celdas = []
                 if indice == 0:
-                    celdas.extend([
-                        f'<td rowspan="3">{e(fecha_texto)}</td>',
-                        f'<td rowspan="3">{cliente_dir}</td>',
-                    ])
+                    celdas.append(f'<td rowspan="3">{e(fecha_texto)}</td>')
+                    fusion = fusiones_cliente.get(indice_bloque)
+                    if fusion:
+                        cliente_dir = e(fusion["cliente"]) + (
+                            "<br>" + e(fusion["direccion"]) if fusion["direccion"] else ""
+                        )
+                        celdas.append(
+                            f'<td rowspan="{fusion["rowspan"]}">{cliente_dir}</td>'
+                        )
                 celdas.extend([
                     f'<td class="left">{e(item.get("Producto", ""))}</td>',
                     f'<td>{e(item.get("Cantidad", ""))}</td>',
