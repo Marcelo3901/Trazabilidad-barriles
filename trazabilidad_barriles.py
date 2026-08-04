@@ -1395,9 +1395,23 @@ def configurar_impresion_hoja(hoja, area):
     hoja.print_options.verticalCentered = True
 
 
-def escribir_texto_celda(hoja, coordenada, valor, horizontal=None, tamano=None, negrita=None):
-    celda = hoja[coordenada]
+def obtener_celda_escribible(hoja, coordenada):
+    """Devuelve la celda real; si pertenece a un rango combinado usa su esquina superior izquierda."""
+    for rango in hoja.merged_cells.ranges:
+        if coordenada in rango:
+            return hoja.cell(row=rango.min_row, column=rango.min_col)
+    return hoja[coordenada]
+
+
+def asignar_valor_celda(hoja, coordenada, valor):
+    """Escribe de forma segura incluso cuando la coordenada pertenece a celdas combinadas."""
+    celda = obtener_celda_escribible(hoja, coordenada)
     celda.value = valor
+    return celda
+
+
+def escribir_texto_celda(hoja, coordenada, valor, horizontal=None, tamano=None, negrita=None):
+    celda = asignar_valor_celda(hoja, coordenada, valor)
     alineacion = copy(celda.alignment)
     celda.alignment = Alignment(
         horizontal=horizontal or alineacion.horizontal,
@@ -1436,7 +1450,7 @@ def llenar_formato_002(
     conductor, realiza, supervisa, calidad_cumple, limpieza_cumple
 ):
     limpiar_bloques_formato(hoja, 11)
-    hoja["K4"] = f"Página {pagina} de {total_paginas}"
+    asignar_valor_celda(hoja, "K4", f"Página {pagina} de {total_paginas}")
     fecha_texto = fecha_obj.strftime("%d/%m/%Y")
     for indice, bloque in enumerate(bloques):
         inicio = 7 + indice * 3
@@ -1444,10 +1458,10 @@ def llenar_formato_002(
         escribir_texto_celda(hoja, f"A{inicio}", fecha_texto, "center", 9)
         escribir_texto_celda(hoja, f"B{inicio}", cliente, "center", 8)
         escribir_texto_celda(hoja, f"K{inicio}", bloque["observaciones"], "center", 8)
-        hoja[f"G{inicio}"] = "X" if calidad_cumple else ""
-        hoja[f"H{inicio}"] = "" if calidad_cumple else "X"
-        hoja[f"I{inicio}"] = "X" if limpieza_cumple else ""
-        hoja[f"J{inicio}"] = "" if limpieza_cumple else "X"
+        asignar_valor_celda(hoja, f"G{inicio}", "X" if calidad_cumple else "")
+        asignar_valor_celda(hoja, f"H{inicio}", "" if calidad_cumple else "X")
+        asignar_valor_celda(hoja, f"I{inicio}", "X" if limpieza_cumple else "")
+        asignar_valor_celda(hoja, f"J{inicio}", "" if limpieza_cumple else "X")
         for desplazamiento, item in enumerate(bloque["items"]):
             fila = inicio + desplazamiento
             escribir_texto_celda(hoja, f"C{fila}", item.get("Producto", ""), "left", 8)
@@ -1465,7 +1479,7 @@ def llenar_formato_003(
     hoja, bloques, fecha_obj, pagina, total_paginas, realiza, supervisa
 ):
     limpiar_bloques_formato(hoja, 8)
-    hoja["H4"] = f"Página {pagina} de {total_paginas}"
+    asignar_valor_celda(hoja, "H4", f"Página {pagina} de {total_paginas}")
     fecha_texto = fecha_obj.strftime("%d/%m/%Y")
     for indice, bloque in enumerate(bloques):
         inicio = 7 + indice * 3
@@ -1478,9 +1492,12 @@ def llenar_formato_003(
             fila = inicio + desplazamiento
             escribir_texto_celda(hoja, f"C{fila}", item.get("Producto", ""), "left", 8)
             escribir_texto_celda(hoja, f"D{fila}", int(item.get("Cantidad", 0) or 0), "center", 9)
-            hoja[f"E{fila}"] = ""
-            hoja[f"F{fila}"] = ""
-        hoja[f"H{inicio}"] = ""
+
+        # Estas casillas están combinadas verticalmente para todo el bloque del cliente.
+        # Se escribe solo en la esquina superior izquierda del rango combinado.
+        asignar_valor_celda(hoja, f"E{inicio}", "")
+        asignar_valor_celda(hoja, f"F{inicio}", "")
+        asignar_valor_celda(hoja, f"H{inicio}", "")
 
     escribir_texto_celda(hoja, "B34", realiza, "left", 9)
     escribir_texto_celda(hoja, "B35", supervisa, "left", 9)
