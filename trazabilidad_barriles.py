@@ -784,21 +784,60 @@ resultado_anterior = st.session_state.pop("resultado_movimiento", None)
 if resultado_anterior:
     tipo = resultado_anterior.get("tipo", "info")
     mensaje = resultado_anterior.get("mensaje", "")
+
     if tipo == "success":
-        st.success(f"✅ {mensaje}")
+        # Celebración visual sin mostrar el resumen ni el detalle de cada barril.
+        st.balloons()
+        st.markdown(
+            """
+            <style>
+            .beer-celebration {
+                position: fixed;
+                inset: 0;
+                pointer-events: none;
+                overflow: hidden;
+                z-index: 999999;
+            }
+            .beer-celebration span {
+                position: absolute;
+                top: -12vh;
+                font-size: 2.2rem;
+                animation-name: beer-fall;
+                animation-timing-function: linear;
+                animation-fill-mode: forwards;
+            }
+            @keyframes beer-fall {
+                0%   { transform: translateY(-12vh) rotate(0deg); opacity: 0; }
+                10%  { opacity: 1; }
+                100% { transform: translateY(115vh) rotate(540deg); opacity: 0.95; }
+            }
+            </style>
+            <div class="beer-celebration" aria-hidden="true">
+                <span style="left:5%;animation-duration:3.7s;animation-delay:0.0s;">🍺</span>
+                <span style="left:14%;animation-duration:4.4s;animation-delay:0.4s;">🍻</span>
+                <span style="left:24%;animation-duration:3.9s;animation-delay:0.2s;">🍺</span>
+                <span style="left:34%;animation-duration:4.8s;animation-delay:0.7s;">🍻</span>
+                <span style="left:45%;animation-duration:3.6s;animation-delay:0.1s;">🍺</span>
+                <span style="left:56%;animation-duration:4.3s;animation-delay:0.5s;">🍻</span>
+                <span style="left:66%;animation-duration:3.8s;animation-delay:0.3s;">🍺</span>
+                <span style="left:76%;animation-duration:4.6s;animation-delay:0.8s;">🍻</span>
+                <span style="left:86%;animation-duration:4.0s;animation-delay:0.2s;">🍺</span>
+                <span style="left:94%;animation-duration:4.5s;animation-delay:0.6s;">🍻</span>
+            </div>
+            """,
+            unsafe_allow_html=True,
+        )
     elif tipo == "warning":
         st.warning(f"⚠️ {mensaje}")
+        for detalle in resultado_anterior.get("detalles", []):
+            st.write(f"• {detalle}")
     else:
         st.error(f"❌ {mensaje}")
-    for detalle in resultado_anterior.get("detalles", []):
-        st.write(f"• {detalle}")
+        for detalle in resultado_anterior.get("detalles", []):
+            st.write(f"• {detalle}")
 
 if BACKEND_SEGURO_ACTIVO:
     st.success("🔒 Protección transaccional activa: bloqueo simultáneo e idempotencia habilitados.")
-else:
-    st.warning(
-        "🟡"
-    )
 
 # ---------- ESTADO Y DATOS ACTUALES DE BARRILES ----------
 if "movimiento_guardando" not in st.session_state:
