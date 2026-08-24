@@ -232,6 +232,25 @@ def normalizar_codigo_barril(valor):
     return texto
 
 
+def normalizar_lote_barril(valor, agregar_prefijo_l=False):
+    """
+    Conserva el lote como texto alfanumérico.
+
+    - Evita que lotes antiguos leídos como 250626013.0 conserven el .0.
+    - Convierte la letra inicial a mayúscula.
+    - Para nuevos ingresos al cuarto frío, si se escribe solo el número, agrega L.
+      Ejemplo: 20260522001 -> L20260522001.
+    """
+    if pd.isna(valor):
+        return ""
+    texto = str(valor).strip().upper()
+    if re.fullmatch(r"\d+\.0+", texto):
+        texto = texto.split(".", 1)[0]
+    if agregar_prefijo_l and texto and re.fullmatch(r"\d+", texto):
+        texto = "L" + texto
+    return texto
+
+
 def combinar_columnas(df, candidatos):
     """Combina columnas duplicadas de Google Sheets conservando el primer valor no vacío."""
     salida = pd.Series("", index=df.index, dtype="object")
@@ -294,7 +313,7 @@ def preparar_datos_barriles(df_original):
 
     salida["Código"] = salida["Código"].map(normalizar_codigo_barril)
     salida["Marca temporal"] = convertir_fechas_sheet(salida["Marca temporal"])
-    salida["Lote"] = salida["Lote"].fillna("").astype(str).str.strip()
+    salida["Lote"] = salida["Lote"].map(normalizar_lote_barril)
     salida["Estilo"] = salida["Estilo"].fillna("").astype(str).str.strip()
     salida["Estado"] = salida["Estado"].fillna("").astype(str).str.strip()
     salida["Cliente"] = salida["Cliente"].fillna("").astype(str).str.strip()
@@ -303,6 +322,17 @@ def preparar_datos_barriles(df_original):
     salida["Operación ID"] = salida["Operación ID"].fillna("").astype(str).str.strip()
     salida["_estado_key"] = salida["Estado"].map(normalizar_clave)
     salida["_orden_fila"] = range(len(salida))
+
+    # Mantiene el último lote y estilo conocidos del barril aunque una fila posterior
+    # (Despacho, Sucio o Lavado) haya quedado vacía en esas columnas de Google Sheets.
+    # Esto también repara la lectura de movimientos históricos ya registrados.
+    codigos_validos = salida["Código"].astype(str).str.strip().ne("")
+    for campo in ("Lote", "Estilo"):
+        valores = salida.loc[codigos_validos, campo].replace("", pd.NA)
+        salida.loc[codigos_validos, campo] = (
+            valores.groupby(salida.loc[codigos_validos, "Código"]).ffill().fillna("")
+        )
+
     return salida
 
 
@@ -547,6 +577,7 @@ def enviar_por_formularios_compatibilidad(payload):
         observaciones = str(payload.get("observaciones", "")).strip()
         etiqueta = f"[OP:{operacion_id}]"
         observaciones_con_id = f"{observaciones}\n{etiqueta}".strip()
+        lote_formulario = normalizar_lote_barril(payload.get("lote", ""))
         datos_formulario = {
             "entry.311770370": codigo,
             "entry.1283669263": payload.get("estilo", ""),
@@ -554,9 +585,9 @@ def enviar_por_formularios_compatibilidad(payload):
             "entry.91059345": payload.get("cliente", ""),
             "entry.1661747572": payload.get("responsable", ""),
             "entry.1465957833": observaciones_con_id,
-            "entry.1234567890": payload.get("lote", "") if payload.get("estado") in ["Despacho", "En cuarto frío"] else "",
+            "entry.1234567890": lote_formulario,
             "entry.1122334455": payload.get("incluye_latas", "No"),
-            "entry.1437332932": payload.get("lote", ""),
+            "entry.1437332932": lote_formulario,
         }
         try:
             respuesta = requests.post(FORM_BARRILES_URL, data=datos_formulario, timeout=25)
@@ -2108,9 +2139,15 @@ else:
     if codigo_barril:
         ultimo_ui = obtener_ultimo_movimiento(datos_barriles_ui, codigo_barril)
         if ultimo_ui is not None:
+            detalle_producto = ""
+            if str(ultimo_ui.get("Estilo", "")).strip():
+                detalle_producto += f" · estilo: {str(ultimo_ui.get('Estilo', '')).strip()}"
+            if str(ultimo_ui.get("Lote", "")).strip():
+                detalle_producto += f" · lote: {normalizar_lote_barril(ultimo_ui.get('Lote', ''))}"
             st.caption(
                 f"Último estado registrado: {ultimo_ui['Estado'] or 'Sin estado'}"
                 + (f" · cliente: {ultimo_ui['Cliente']}" if ultimo_ui["Cliente"] else "")
+                + detalle_producto
             )
             if normalizar_clave(ultimo_ui["Estado"]) == normalizar_clave(estado_barril):
                 st.error(f"🚫 Este barril ya tiene como último estado '{estado_barril}'.")
@@ -2118,11 +2155,15 @@ else:
             st.caption("El código no tiene movimientos anteriores registrados.")
 
 if estado_barril == "En cuarto frío":
-    lote_producto = st.text_input(
+    lote_ingresado = st.text_input(
         "Lote del producto",
         key="mov_lote",
         disabled=st.session_state.movimiento_guardando,
+        help="Formato recomendado: L seguido del número de lote, por ejemplo L20260522001.",
     ).strip()
+    lote_producto = normalizar_lote_barril(lote_ingresado, agregar_prefijo_l=True)
+    if lote_ingresado and lote_producto != lote_ingresado.strip().upper():
+        st.caption(f"El lote se guardará como: {lote_producto}")
     estilo_cerveza = st.selectbox(
         "Estilo",
         estilos,
@@ -2438,9 +2479,11 @@ if st.session_state.get("movimiento_solicitado", False):
                     "Se bloqueó para evitar un duplicado mientras Google actualiza la hoja."
                 )
 
-            if estado_barril == "Despacho" and ultimo_fresco is not None:
+            # En los movimientos posteriores al ingreso al cuarto frío se conserva
+            # automáticamente el último estilo y lote conocidos del barril.
+            if estado_barril != "En cuarto frío" and ultimo_fresco is not None:
                 estilo_cerveza = str(ultimo_fresco.get("Estilo", "")).strip()
-                lote_producto = str(ultimo_fresco.get("Lote", "")).strip()
+                lote_producto = normalizar_lote_barril(ultimo_fresco.get("Lote", ""))
 
     inventario_actual = inventario_latas
     if incluye_latas == "Sí":
