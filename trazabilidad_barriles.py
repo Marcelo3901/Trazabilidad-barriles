@@ -23,6 +23,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font
 
 # La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
+# V3: los lotes de barril se conservan como texto con prefijo L en toda la app y formatos.
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
@@ -232,7 +233,7 @@ def normalizar_codigo_barril(valor):
     return texto
 
 
-def normalizar_lote_barril(valor, agregar_prefijo_l=False):
+def normalizar_lote_barril(valor, agregar_prefijo_l=True):
     """
     Conserva el lote como texto alfanumérico.
 
@@ -244,6 +245,8 @@ def normalizar_lote_barril(valor, agregar_prefijo_l=False):
     if pd.isna(valor):
         return ""
     texto = str(valor).strip().upper()
+    # Si la celda usa apostrofe para forzar texto en Sheets/Excel, no se muestra al usuario.
+    texto = texto.lstrip("\'")
     if re.fullmatch(r"\d+\.0+", texto):
         texto = texto.split(".", 1)[0]
     if agregar_prefijo_l and texto and re.fullmatch(r"\d+", texto):
@@ -313,7 +316,9 @@ def preparar_datos_barriles(df_original):
 
     salida["Código"] = salida["Código"].map(normalizar_codigo_barril)
     salida["Marca temporal"] = convertir_fechas_sheet(salida["Marca temporal"])
-    salida["Lote"] = salida["Lote"].map(normalizar_lote_barril)
+    salida["Lote"] = salida["Lote"].map(
+        lambda valor: normalizar_lote_barril(valor, agregar_prefijo_l=True)
+    )
     salida["Estilo"] = salida["Estilo"].fillna("").astype(str).str.strip()
     salida["Estado"] = salida["Estado"].fillna("").astype(str).str.strip()
     salida["Cliente"] = salida["Cliente"].fillna("").astype(str).str.strip()
@@ -610,7 +615,9 @@ def enviar_por_formularios_compatibilidad(payload):
             pass
 
         observaciones = str(payload.get("observaciones", "")).strip()
-        lote_formulario = normalizar_lote_barril(payload.get("lote", ""))
+        lote_formulario = normalizar_lote_barril(
+            payload.get("lote", ""), agregar_prefijo_l=True
+        )
         datos_formulario = {
             "entry.311770370": codigo,
             "entry.1283669263": payload.get("estilo", ""),
@@ -688,7 +695,9 @@ def registrar_lista_despacho(barriles, datos_comunes, operacion_general_id):
             "cliente": datos_comunes.get("cliente", ""),
             "responsable": datos_comunes.get("responsable", ""),
             "observaciones": datos_comunes.get("observaciones", ""),
-            "lote": barril.get("lote", ""),
+            "lote": normalizar_lote_barril(
+                barril.get("lote", ""), agregar_prefijo_l=True
+            ),
             "estilo": barril.get("estilo", ""),
             "incluye_latas": "Sí" if incluye_latas_en_este else "No",
             "latas": latas_pedido if incluye_latas_en_este else [],
@@ -1135,7 +1144,9 @@ def registrar_pedido_local_orden_general(
             "Dirección": str(direccion or "").strip(),
             "Producto": nombre_producto_barril(codigo, barril.get("estilo", "")),
             "Cantidad": 1,
-            "Lote": str(barril.get("lote", "") or "").strip(),
+            "Lote": normalizar_lote_barril(
+                barril.get("lote", ""), agregar_prefijo_l=True
+            ),
             "Código del Barril": codigo,
             "Responsable": str(responsable).strip(),
             "Observaciones": limpiar_observacion_operacion(observaciones),
@@ -1181,7 +1192,9 @@ def _pedidos_barriles_sheet(fecha_obj, direcciones):
             "Dirección": direcciones.get(normalizar_clave(cliente), ""),
             "Producto": nombre_producto_barril(codigo, estilo),
             "Cantidad": 1,
-            "Lote": str(fila.get("Lote", "") or "").strip(),
+            "Lote": normalizar_lote_barril(
+                fila.get("Lote", ""), agregar_prefijo_l=True
+            ),
             "Código del Barril": codigo,
             "Responsable": str(fila.get("Responsable", "") or "").strip(),
             "Observaciones": limpiar_observacion_operacion(fila.get("Observaciones", "")),
@@ -1400,6 +1413,11 @@ def compactar_pedidos_para_formatos(pedidos_df):
             df[columna] = "" if columna != "Cantidad" else 0
 
     df["Cantidad"] = pd.to_numeric(df["Cantidad"], errors="coerce").fillna(0).astype(int)
+    # Los lotes de barril se mantienen siempre como texto alfanumerico con prefijo L.
+    mascara_barril = df["Tipo"].map(normalizar_clave).eq("barril")
+    df.loc[mascara_barril, "Lote"] = df.loc[mascara_barril, "Lote"].map(
+        lambda valor: normalizar_lote_barril(valor, agregar_prefijo_l=True)
+    )
     df["_cliente_key"] = df["Cliente"].map(normalizar_clave)
     df["_producto_key"] = df["Producto"].map(normalizar_clave)
     df["_tipo_key"] = df["Tipo"].map(normalizar_clave)
@@ -1685,7 +1703,14 @@ def llenar_formato_002(
             fila = inicio + desplazamiento
             escribir_texto_celda(hoja, f"C{fila}", item.get("Producto", ""), "left", 8)
             escribir_texto_celda(hoja, f"D{fila}", int(item.get("Cantidad", 0) or 0), "center", 9)
-            escribir_texto_celda(hoja, f"E{fila}", item.get("Lote", ""), "center", 8)
+            lote_formato = (
+                normalizar_lote_barril(item.get("Lote", ""), agregar_prefijo_l=True)
+                if normalizar_clave(item.get("Tipo", "")) == "barril"
+                else str(item.get("Lote", "") or "").strip()
+            )
+            escribir_texto_celda(hoja, f"E{fila}", lote_formato, "center", 8)
+            # Fuerza la columna Lote a tipo texto en Excel para conservar la L.
+            obtener_celda_escribible(hoja, f"E{fila}").number_format = "@"
             escribir_texto_celda(hoja, f"F{fila}", item.get("Código del Barril", ""), "center", 9)
 
     combinar_celdas_cliente_en_hoja(hoja, bloques, incluir_direccion=False)
@@ -2168,7 +2193,9 @@ if estado_barril == "Despacho":
         fila["Código"]: {
             "codigo": fila["Código"],
             "estilo": fila["Estilo"],
-            "lote": fila["Lote"],
+            "lote": normalizar_lote_barril(
+                fila["Lote"], agregar_prefijo_l=True
+            ),
         }
         for _, fila in cuarto_frio_ui.iterrows()
     }
@@ -2525,7 +2552,10 @@ if st.session_state.get("movimiento_solicitado", False):
                 barriles_validados.append({
                     "codigo": codigo_item,
                     "estilo": str(ultimo_item.get("Estilo", "")).strip() if ultimo_item is not None else str(item.get("estilo", "")).strip(),
-                    "lote": str(ultimo_item.get("Lote", "")).strip() if ultimo_item is not None else str(item.get("lote", "")).strip(),
+                    "lote": normalizar_lote_barril(
+                        ultimo_item.get("Lote", "") if ultimo_item is not None else item.get("lote", ""),
+                        agregar_prefijo_l=True,
+                    ),
                 })
 
     elif registrar_barril:
@@ -2865,7 +2895,11 @@ try:
     df_mov.columns = df_mov.columns.str.strip()
     if not df_mov.empty:
         df_mov = df_mov[df_mov["Código"].notna()]
-        st.dataframe(df_mov.tail(10)[["Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        if "Lote" in df_mov.columns:
+            df_mov["Lote"] = df_mov["Lote"].map(
+                lambda valor: normalizar_lote_barril(valor, agregar_prefijo_l=True)
+            )
+        st.dataframe(df_mov.tail(10)[["Código", "Lote", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
         st.warning("⚠️ La hoja está vacía.")
 except Exception as e:
@@ -2920,7 +2954,11 @@ try:
         df_filtrado = df_filtrado[df_filtrado["Estado"] == filtro_estado]
 
     if not df_filtrado.empty:
-        st.dataframe(df_filtrado[["Marca temporal","Código", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
+        if "Lote" in df_filtrado.columns:
+            df_filtrado["Lote"] = df_filtrado["Lote"].map(
+                lambda valor: normalizar_lote_barril(valor, agregar_prefijo_l=True)
+            )
+        st.dataframe(df_filtrado[["Marca temporal","Código", "Lote", "Estilo", "Estado", "Cliente", "Responsable", "Observaciones"]])
     else:
         st.warning("⚠️ No se encontraron registros con los filtros aplicados.")
 
@@ -2960,8 +2998,8 @@ if st.button("Registrar devolución"):
                 "entry.91059345": cliente,                 # Cliente
                 "entry.1661747572": responsable,           # Responsable
                 "entry.1465957833": observaciones,         # Observaciones
-                "entry.1234567890": lote_producto,         # Lote (opcional, cambia si tienes otro ID)
-                "entry.1437332932": lote_producto          # Lote repetido si tu formulario lo necesita
+                "entry.1234567890": normalizar_lote_barril(lote_producto, agregar_prefijo_l=True),
+                "entry.1437332932": normalizar_lote_barril(lote_producto, agregar_prefijo_l=True)
             }
 
             response = requests.post(url_form_barril, data=form_data_barril)
@@ -3028,7 +3066,7 @@ if st.button("Registrar Baja de Producto"):
                 "entry.1545499818": "Baja",                                # Estado automático "Baja"
                 "entry.1661747572": responsable_baja,                      # Responsable
                 "entry.1465957833": observaciones_baja,                    # Observaciones
-                "entry.1234567890": lote_barril_baja,                      # Lote (opcional)
+                "entry.1234567890": normalizar_lote_barril(lote_barril_baja, agregar_prefijo_l=True),
                 "entry.1437332932": lote_barril_baja                       # Repetido si es necesario
             }
 
