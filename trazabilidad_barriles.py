@@ -357,7 +357,7 @@ def cargar_csv_publico_fresco(nombre_hoja, timeout=30):
     return df
 
 
-@st.cache_data(ttl=10, show_spinner=False)
+@st.cache_data(ttl=60, show_spinner=False)
 def cargar_datos_barriles_ui():
     """Carga rápida para construir la interfaz; al guardar siempre se consulta de nuevo."""
     return preparar_datos_barriles(cargar_csv_publico_fresco(HOJA_BARRILES))
@@ -393,6 +393,21 @@ def barriles_actualmente_en_cuarto_frio(df):
     if ultimos.empty:
         return ultimos
     return ultimos[ultimos["_estado_key"].eq("en cuarto frio")].copy()
+
+
+@st.cache_data(ttl=60, show_spinner=False)
+def cargar_resumen_barriles_ui():
+    """
+    Precalcula una sola vez por minuto el estado actual usado por la interfaz.
+    La validación de Guardar Registro sigue usando una lectura fresca sin caché.
+    """
+    datos = cargar_datos_barriles_ui()
+    ultimos = obtener_ultimos_movimientos(datos)
+    if ultimos.empty:
+        cuarto_frio = ultimos.copy()
+    else:
+        cuarto_frio = ultimos[ultimos["_estado_key"].eq("en cuarto frio")].copy()
+    return datos, ultimos, cuarto_frio
 
 
 def validar_formato_codigo_barril(codigo):
@@ -545,22 +560,42 @@ def enviar_backend_apps_script(payload):
     return False, mensaje, reintentable, datos
 
 
-def esperar_confirmacion_operacion_formulario(operacion_id, intentos=3, pausa=2):
+def movimiento_payload_visible(df, payload):
+    """Confirma un movimiento sin necesitar guardar el ID técnico en Observaciones."""
+    codigo = normalizar_codigo_barril(payload.get("codigo", ""))
+    if not codigo or df is None or df.empty:
+        return False
+    ultimo = obtener_ultimo_movimiento(df, codigo)
+    if ultimo is None:
+        return False
+
+    estado_ok = normalizar_clave(ultimo.get("Estado", "")) == normalizar_clave(payload.get("estado", ""))
+    cliente_ok = normalizar_clave(ultimo.get("Cliente", "")) == normalizar_clave(payload.get("cliente", ""))
+    lote_payload = normalizar_lote_barril(payload.get("lote", ""))
+    lote_ultimo = normalizar_lote_barril(ultimo.get("Lote", ""))
+    lote_ok = (not lote_payload) or lote_payload == lote_ultimo
+    observacion_payload = limpiar_observacion_operacion(payload.get("observaciones", ""))
+    observacion_ultima = limpiar_observacion_operacion(ultimo.get("Observaciones", ""))
+    observacion_ok = (not observacion_payload) or observacion_payload == observacion_ultima
+    return bool(estado_ok and cliente_ok and lote_ok and observacion_ok)
+
+
+def esperar_confirmacion_movimiento_formulario(payload, intentos=3, pausa=2):
     for _ in range(intentos):
         time.sleep(pausa)
         try:
             datos = cargar_datos_barriles_frescos()
         except Exception:
             continue
-        if operacion_ya_registrada(datos, operacion_id):
+        if movimiento_payload_visible(datos, payload):
             return True
     return False
 
 
 def enviar_por_formularios_compatibilidad(payload):
     """
-    Modo compatible con la app antigua. Evita dobles clics por sesión e incluye un ID
-    en Observaciones, pero no sustituye el bloqueo transaccional de Apps Script.
+    Modo compatible con la app antigua. El ID técnico se mantiene en memoria, pero
+    Observaciones guarda únicamente el texto escrito por el usuario.
     """
     operacion_id = payload["operacion_id"]
     codigo = payload.get("codigo", "")
@@ -569,22 +604,20 @@ def enviar_por_formularios_compatibilidad(payload):
     if registrar_barril:
         try:
             datos = cargar_datos_barriles_frescos()
-            if operacion_ya_registrada(datos, operacion_id):
+            if operacion_ya_registrada(datos, operacion_id) or movimiento_payload_visible(datos, payload):
                 return True, "La operación ya estaba registrada; no se volvió a enviar.", False, {"duplicate": True}
         except Exception:
             pass
 
         observaciones = str(payload.get("observaciones", "")).strip()
-        etiqueta = f"[OP:{operacion_id}]"
-        observaciones_con_id = f"{observaciones}\n{etiqueta}".strip()
         lote_formulario = normalizar_lote_barril(payload.get("lote", ""))
         datos_formulario = {
             "entry.311770370": codigo,
             "entry.1283669263": payload.get("estilo", ""),
             "entry.1545499818": payload.get("estado", ""),
-            "entry.91059345": payload.get("cliente", ""),
+            "entry.91059345": str(payload.get("cliente", "") or "").strip(),
             "entry.1661747572": payload.get("responsable", ""),
-            "entry.1465957833": observaciones_con_id,
+            "entry.1465957833": observaciones,
             "entry.1234567890": lote_formulario,
             "entry.1122334455": payload.get("incluye_latas", "No"),
             "entry.1437332932": lote_formulario,
@@ -592,7 +625,7 @@ def enviar_por_formularios_compatibilidad(payload):
         try:
             respuesta = requests.post(FORM_BARRILES_URL, data=datos_formulario, timeout=25)
         except requests.RequestException as exc:
-            if esperar_confirmacion_operacion_formulario(operacion_id):
+            if esperar_confirmacion_movimiento_formulario(payload):
                 return True, "El registro sí llegó a Google Sheets y no se duplicó.", False, {"verified_after_error": True}
             return False, f"No se pudo confirmar si Google recibió el barril: {exc}", True, {}
 
@@ -1283,10 +1316,18 @@ def combinar_pedidos_sheet_y_locales(filas_sheet, fecha_obj):
     return resultado
 
 
-def cargar_orden_general_del_dia(fecha_obj):
+@st.cache_data(ttl=60, show_spinner=False)
+def cargar_orden_general_sheet_cache(fecha_iso):
+    """Evita releer DatosM, VLatas y RClientes en cada clic de la interfaz."""
+    fecha_obj = datetime.strptime(fecha_iso, "%Y-%m-%d").date()
     direcciones = mapa_direcciones_clientes_fresco()
     filas = _pedidos_barriles_sheet(fecha_obj, direcciones)
     filas.extend(_pedidos_latas_sheet(fecha_obj, direcciones))
+    return filas
+
+
+def cargar_orden_general_del_dia(fecha_obj):
+    filas = cargar_orden_general_sheet_cache(fecha_obj.isoformat())
     return combinar_pedidos_sheet_y_locales(filas, fecha_obj)
 
 
@@ -1886,7 +1927,8 @@ def guardar_resultado_y_reiniciar(tipo, mensaje, detalles=None, conservar_operac
 def limpiar_widgets_movimiento():
     claves = [
         "mov_codigo_despacho", "mov_codigo_manual", "mov_lote", "mov_estilo",
-        "mov_observaciones", "incluye_latas_despacho"
+        "mov_observaciones", "incluye_latas_despacho",
+        "mov_cliente", "mov_cliente_manual", "mov_direccion_cliente"
     ]
     cantidad_ordenes = int(st.session_state.get("num_latas", 1))
     for indice in range(cantidad_ordenes):
@@ -1897,6 +1939,25 @@ def limpiar_widgets_movimiento():
         st.session_state.pop(clave, None)
     st.session_state.num_latas = 1
     st.session_state.barriles_pedido_despacho = []
+
+
+def agregar_barril_pedido_callback(datos_barril):
+    if not datos_barril or not datos_barril.get("codigo"):
+        return
+    actual = list(st.session_state.get("barriles_pedido_despacho", []))
+    codigo = normalizar_codigo_barril(datos_barril.get("codigo", ""))
+    if codigo and all(normalizar_codigo_barril(x.get("codigo", "")) != codigo for x in actual):
+        actual.append(dict(datos_barril))
+        st.session_state.barriles_pedido_despacho = actual
+
+
+def quitar_barril_pedido_callback(codigo):
+    codigo = normalizar_codigo_barril(codigo)
+    actual = list(st.session_state.get("barriles_pedido_despacho", []))
+    st.session_state.barriles_pedido_despacho = [
+        item for item in actual
+        if normalizar_codigo_barril(item.get("codigo", "")) != codigo
+    ]
 
 # --- Lista de estilos global ---
 estilos = ["Golden", "Amber", "Vienna Lager", "Brown Ale Cafe", "Stout",
@@ -2030,12 +2091,68 @@ estado_barril = st.selectbox(
     disabled=st.session_state.movimiento_guardando,
 )
 
+# ---------- CLIENTE PRIMERO EN DESPACHO ----------
+lista_clientes = []
+dict_direcciones = {}
 try:
-    datos_barriles_ui = cargar_datos_barriles_ui()
-    ultimos_barriles_ui = obtener_ultimos_movimientos(datos_barriles_ui)
+    df_clientes = cargar_hoja_csv(HOJA_CLIENTES).copy()
+    df_clientes.columns = df_clientes.columns.astype(str).str.strip()
+    if "Nombre" not in df_clientes.columns:
+        raise ValueError("La hoja RClientes no contiene la columna Nombre.")
+    df_clientes["Nombre"] = df_clientes["Nombre"].fillna("").astype(str).str.strip()
+    df_clientes = df_clientes[df_clientes["Nombre"].ne("")]
+    lista_clientes = df_clientes["Nombre"].drop_duplicates().tolist()
+    if "Dirección" in df_clientes.columns:
+        dict_direcciones = (
+            df_clientes.drop_duplicates("Nombre")
+            .set_index("Nombre")["Dirección"]
+            .to_dict()
+        )
+except Exception as exc:
+    if estado_barril == "Despacho":
+        st.warning(f"No se pudieron cargar los clientes: {exc}")
+
+cliente = "Planta Castiza"
+direccion_cliente = ""
+if estado_barril == "Despacho":
+    st.markdown("#### 👤 Cliente del despacho")
+    if lista_clientes:
+        opcion_cliente_vacio = "— Selecciona un cliente —"
+        opciones_clientes = [opcion_cliente_vacio] + lista_clientes
+        if st.session_state.get("mov_cliente", opcion_cliente_vacio) not in opciones_clientes:
+            st.session_state.mov_cliente = opcion_cliente_vacio
+        cliente_seleccionado = st.selectbox(
+            "Cliente",
+            opciones_clientes,
+            key="mov_cliente",
+            disabled=st.session_state.movimiento_guardando,
+        )
+        cliente = "" if cliente_seleccionado == opcion_cliente_vacio else str(cliente_seleccionado).strip()
+        if cliente:
+            direccion_cliente = str(dict_direcciones.get(cliente, "") or "").strip()
+            if direccion_cliente:
+                st.text_input(
+                    "Dirección del cliente",
+                    value=direccion_cliente,
+                    disabled=True,
+                    key="mov_direccion_cliente",
+                )
+    else:
+        cliente = st.text_input(
+            "Cliente",
+            key="mov_cliente_manual",
+            disabled=st.session_state.movimiento_guardando,
+        ).strip()
+
+    if not cliente:
+        st.caption("Selecciona primero el cliente. Ese mismo nombre se guardará en DatosM y se utilizará en la Orden General y los formatos de despacho.")
+
+try:
+    datos_barriles_ui, ultimos_barriles_ui, cuarto_frio_cache_ui = cargar_resumen_barriles_ui()
 except Exception as exc:
     datos_barriles_ui = pd.DataFrame()
     ultimos_barriles_ui = pd.DataFrame()
+    cuarto_frio_cache_ui = pd.DataFrame()
     st.error(f"No fue posible consultar el estado actual de los barriles: {exc}")
 
 codigo_barril = ""
@@ -2044,7 +2161,8 @@ estilo_cerveza = ""
 ultimo_ui = None
 
 if estado_barril == "Despacho":
-    cuarto_frio_ui = barriles_actualmente_en_cuarto_frio(datos_barriles_ui)
+    st.markdown("#### 🛢️ Barriles del pedido")
+    cuarto_frio_ui = cuarto_frio_cache_ui.copy()
     cuarto_frio_ui.sort_values(["Estilo", "Código"], inplace=True, ignore_index=True)
     mapa_barriles = {
         fila["Código"]: {
@@ -2082,15 +2200,15 @@ if estado_barril == "Despacho":
         help="La lista contiene únicamente barriles cuyo último estado es En cuarto frío.",
     )
 
-    if st.button(
+    datos_para_agregar = dict(mapa_barriles.get(codigo_para_agregar, {}))
+    st.button(
         "➕ Agregar barril al pedido",
         key="agregar_barril_pedido",
         use_container_width=True,
         disabled=st.session_state.movimiento_guardando or not codigo_para_agregar,
-    ):
-        datos_agregar = dict(mapa_barriles[codigo_para_agregar])
-        st.session_state.barriles_pedido_despacho = barriles_pedido + [datos_agregar]
-        st.rerun()
+        on_click=agregar_barril_pedido_callback,
+        args=(datos_para_agregar,),
+    )
 
     barriles_pedido = list(st.session_state.get("barriles_pedido_despacho", []))
     st.markdown("#### 🧾 Lista de barriles del pedido")
@@ -2113,16 +2231,14 @@ if estado_barril == "Despacho":
                 f"{item.get('estilo', '') or 'Sin estilo'} · "
                 f"lote {item.get('lote', '') or 'sin lote'}"
             )
-            if col_quitar.button(
+            col_quitar.button(
                 "🗑️",
                 key=f"quitar_barril_pedido_{indice}_{item.get('codigo', '')}",
                 disabled=st.session_state.movimiento_guardando,
                 help="Quitar este barril del pedido.",
-            ):
-                nueva_lista = list(barriles_pedido)
-                nueva_lista.pop(indice)
-                st.session_state.barriles_pedido_despacho = nueva_lista
-                st.rerun()
+                on_click=quitar_barril_pedido_callback,
+                args=(item.get("codigo", ""),),
+            )
     else:
         st.info(
             "Todavía no has agregado barriles. Puedes agregar varios o continuar con un despacho exclusivo de latas."
@@ -2137,7 +2253,7 @@ else:
         disabled=st.session_state.movimiento_guardando,
     ).strip()
     if codigo_barril:
-        ultimo_ui = obtener_ultimo_movimiento(datos_barriles_ui, codigo_barril)
+        ultimo_ui = obtener_ultimo_movimiento(ultimos_barriles_ui, codigo_barril)
         if ultimo_ui is not None:
             detalle_producto = ""
             if str(ultimo_ui.get("Estilo", "")).strip():
@@ -2170,49 +2286,6 @@ if estado_barril == "En cuarto frío":
         key="mov_estilo",
         disabled=st.session_state.movimiento_guardando,
     )
-
-# ---------- CLIENTES ----------
-try:
-    df_clientes = cargar_hoja_csv(HOJA_CLIENTES).copy()
-    df_clientes.columns = df_clientes.columns.astype(str).str.strip()
-    if "Nombre" not in df_clientes.columns:
-        raise ValueError("La hoja RClientes no contiene la columna Nombre.")
-    df_clientes["Nombre"] = df_clientes["Nombre"].fillna("").astype(str).str.strip()
-    df_clientes = df_clientes[df_clientes["Nombre"].ne("")]
-    lista_clientes = df_clientes["Nombre"].drop_duplicates().tolist()
-    if "Dirección" in df_clientes.columns:
-        dict_direcciones = df_clientes.drop_duplicates("Nombre").set_index("Nombre")["Dirección"].to_dict()
-    else:
-        dict_direcciones = {}
-except Exception as exc:
-    lista_clientes = []
-    dict_direcciones = {}
-    if estado_barril == "Despacho":
-        st.warning(f"No se pudieron cargar los clientes: {exc}")
-
-cliente = "Planta Castiza"
-if estado_barril == "Despacho":
-    if lista_clientes:
-        cliente = st.selectbox(
-            "Cliente",
-            lista_clientes,
-            key="mov_cliente",
-            disabled=st.session_state.movimiento_guardando,
-        )
-        direccion_cliente = dict_direcciones.get(cliente, "")
-        if direccion_cliente:
-            st.text_input(
-                "Dirección del cliente",
-                value=str(direccion_cliente),
-                disabled=True,
-                key="mov_direccion_cliente",
-            )
-    else:
-        cliente = st.text_input(
-            "Cliente",
-            key="mov_cliente_manual",
-            disabled=st.session_state.movimiento_guardando,
-        ).strip()
 
 # ---------- DESPACHO DE LATAS ----------
 latas = []
@@ -2403,7 +2476,8 @@ if st.session_state.get("movimiento_solicitado", False):
     elif not registrar_barril:
         errores_guardado.append("Debes ingresar un código de barril.")
 
-    if estado_barril == "Despacho" and not str(cliente).strip():
+    cliente = str(cliente or "").strip() if estado_barril == "Despacho" else "Planta Castiza"
+    if estado_barril == "Despacho" and not cliente:
         errores_guardado.append("Debes seleccionar o ingresar el cliente del despacho.")
 
     datos_barriles_frescos = pd.DataFrame()
@@ -2580,6 +2654,8 @@ if st.session_state.get("movimiento_solicitado", False):
 
         cargar_hoja_csv.clear()
         cargar_datos_barriles_ui.clear()
+        cargar_resumen_barriles_ui.clear()
+        cargar_orden_general_sheet_cache.clear()
         limpiar_widgets_movimiento()
         detalles = list(respuesta_extra.get("detalles", []))
         guardar_resultado_y_reiniciar(
@@ -2623,8 +2699,9 @@ if col_actualizar_orden.button(
 ):
     cargar_hoja_csv.clear()
     cargar_datos_barriles_ui.clear()
+    cargar_resumen_barriles_ui.clear()
+    cargar_orden_general_sheet_cache.clear()
     st.session_state.pop("documentos_orden_general", None)
-    st.rerun()
 
 try:
     pedidos_orden_general = cargar_orden_general_del_dia(fecha_orden_general)
@@ -2770,6 +2847,8 @@ if st.button("Agregar Cliente"):
         }
         response = requests.post(form_cliente_url, data=payload_cliente)
         if response.status_code in [200, 302]:
+            cargar_hoja_csv.clear()
+            cargar_orden_general_sheet_cache.clear()
             st.success("✅ Cliente agregado correctamente")
         else:
             st.error(f"❌ Error al agregar cliente. Código: {response.status_code}")
