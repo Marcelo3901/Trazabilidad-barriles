@@ -23,7 +23,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font
 
 # La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
-# V3: los lotes de barril se conservan como texto con prefijo L en toda la app y formatos.
+# V4: permite registrar barriles parciales al ingresar al cuarto frío y los advierte en despacho.
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
@@ -689,12 +689,17 @@ def registrar_lista_despacho(barriles, datos_comunes, operacion_general_id):
     movimientos = []
     for indice, barril in enumerate(barriles):
         incluye_latas_en_este = indice == 0 and bool(latas_pedido)
+        observaciones_barril = agregar_marca_barril_parcial(
+            datos_comunes.get("observaciones", ""),
+            barril.get("codigo", ""),
+            barril.get("litros_parcial"),
+        )
         payload = {
             "codigo": barril["codigo"],
             "estado": "Despacho",
             "cliente": datos_comunes.get("cliente", ""),
             "responsable": datos_comunes.get("responsable", ""),
-            "observaciones": datos_comunes.get("observaciones", ""),
+            "observaciones": observaciones_barril,
             "lote": normalizar_lote_barril(
                 barril.get("lote", ""), agregar_prefijo_l=True
             ),
@@ -1099,6 +1104,48 @@ def capacidad_barril_desde_codigo(codigo):
     return {"20": 20, "30": 30, "58": 58}.get(codigo[:2])
 
 
+PATRON_BARRIL_PARCIAL = re.compile(
+    r"\bBARRIL\s+PARCIAL(?:\s+\d{5})?\s*:\s*(\d+(?:[.,]\d+)?)\s*L\b",
+    flags=re.IGNORECASE,
+)
+
+
+def formatear_litros_barril(valor):
+    """Muestra litros sin decimales innecesarios: 5.0 -> 5; 5.5 -> 5.5."""
+    if valor is None:
+        return ""
+    numero = float(valor)
+    if numero.is_integer():
+        return str(int(numero))
+    return f"{numero:.2f}".rstrip("0").rstrip(".")
+
+
+def extraer_litros_barril_parcial(observaciones):
+    """Lee la marca visible BARRIL PARCIAL ...: X L guardada en Observaciones."""
+    texto = limpiar_observacion_operacion(observaciones)
+    coincidencia = PATRON_BARRIL_PARCIAL.search(texto)
+    if not coincidencia:
+        return None
+    try:
+        return float(coincidencia.group(1).replace(",", "."))
+    except (TypeError, ValueError):
+        return None
+
+
+def agregar_marca_barril_parcial(observaciones, codigo, litros):
+    """Agrega una nota operativa visible sin usar campos técnicos ni cambiar el Sheet."""
+    base = limpiar_observacion_operacion(observaciones)
+    if litros is None:
+        return base
+
+    # Evita duplicar una marca anterior si el usuario reintenta la operación.
+    base = PATRON_BARRIL_PARCIAL.sub("", base)
+    base = re.sub(r"\s*\|\s*\|\s*", " | ", base).strip(" |;")
+    codigo_limpio = normalizar_codigo_barril(codigo)
+    marca = f"BARRIL PARCIAL {codigo_limpio}: {formatear_litros_barril(litros)} L"
+    return f"{base} | {marca}" if base else marca
+
+
 def nombre_producto_barril(codigo, estilo):
     capacidad = capacidad_barril_desde_codigo(codigo)
     partes = ["Barril"]
@@ -1149,7 +1196,9 @@ def registrar_pedido_local_orden_general(
             ),
             "Código del Barril": codigo,
             "Responsable": str(responsable).strip(),
-            "Observaciones": limpiar_observacion_operacion(observaciones),
+            "Observaciones": agregar_marca_barril_parcial(
+                observaciones, codigo, barril.get("litros_parcial")
+            ),
             "Tipo": "Barril",
         })
     for lata in latas:
@@ -1952,6 +2001,7 @@ def guardar_resultado_y_reiniciar(tipo, mensaje, detalles=None, conservar_operac
 def limpiar_widgets_movimiento():
     claves = [
         "mov_codigo_despacho", "mov_codigo_manual", "mov_lote", "mov_estilo",
+        "mov_tipo_contenido", "mov_litros_parcial",
         "mov_observaciones", "incluye_latas_despacho",
         "mov_cliente", "mov_cliente_manual", "mov_direccion_cliente"
     ]
@@ -2183,6 +2233,8 @@ except Exception as exc:
 codigo_barril = ""
 lote_producto = ""
 estilo_cerveza = ""
+barril_es_parcial = False
+litros_parcial = None
 ultimo_ui = None
 
 if estado_barril == "Despacho":
@@ -2195,6 +2247,9 @@ if estado_barril == "Despacho":
             "estilo": fila["Estilo"],
             "lote": normalizar_lote_barril(
                 fila["Lote"], agregar_prefijo_l=True
+            ),
+            "litros_parcial": extraer_litros_barril_parcial(
+                fila.get("Observaciones", "")
             ),
         }
         for _, fila in cuarto_frio_ui.iterrows()
@@ -2221,6 +2276,11 @@ if estado_barril == "Despacho":
             else (
                 f"{codigo} — {mapa_barriles[codigo]['estilo'] or 'Sin estilo'}"
                 f" — lote {mapa_barriles[codigo]['lote'] or 'sin lote'}"
+                + (
+                    f" — ⚠️ PARCIAL {formatear_litros_barril(mapa_barriles[codigo]['litros_parcial'])} L"
+                    if mapa_barriles[codigo].get("litros_parcial") is not None
+                    else ""
+                )
             )
         ),
         disabled=st.session_state.movimiento_guardando,
@@ -2228,6 +2288,11 @@ if estado_barril == "Despacho":
     )
 
     datos_para_agregar = dict(mapa_barriles.get(codigo_para_agregar, {}))
+    if datos_para_agregar.get("litros_parcial") is not None:
+        st.warning(
+            f"⚠️ Atención: el barril {codigo_para_agregar} es PARCIAL y tiene "
+            f"aproximadamente {formatear_litros_barril(datos_para_agregar['litros_parcial'])} L."
+        )
     st.button(
         "➕ Agregar barril al pedido",
         key="agregar_barril_pedido",
@@ -2245,6 +2310,11 @@ if estado_barril == "Despacho":
                 "Código": item.get("codigo", ""),
                 "Estilo": item.get("estilo", ""),
                 "Lote": item.get("lote", ""),
+                "Contenido": (
+                    f"⚠️ Parcial {formatear_litros_barril(item.get('litros_parcial'))} L"
+                    if item.get("litros_parcial") is not None
+                    else "Completo"
+                ),
             }
             for item in barriles_pedido
         ])
@@ -2257,6 +2327,11 @@ if estado_barril == "Despacho":
                 f"**{indice + 1}. {item.get('codigo', '')}** · "
                 f"{item.get('estilo', '') or 'Sin estilo'} · "
                 f"lote {item.get('lote', '') or 'sin lote'}"
+                + (
+                    f" · ⚠️ PARCIAL {formatear_litros_barril(item.get('litros_parcial'))} L"
+                    if item.get("litros_parcial") is not None
+                    else ""
+                )
             )
             col_quitar.button(
                 "🗑️",
@@ -2313,6 +2388,39 @@ if estado_barril == "En cuarto frío":
         key="mov_estilo",
         disabled=st.session_state.movimiento_guardando,
     )
+
+    tipo_contenido = st.selectbox(
+        "Contenido del barril",
+        ["Completo", "Parcial"],
+        key="mov_tipo_contenido",
+        disabled=st.session_state.movimiento_guardando,
+        help="Selecciona Parcial cuando el barril tenga menos litros que su capacidad nominal.",
+    )
+    barril_es_parcial = tipo_contenido == "Parcial"
+    if barril_es_parcial:
+        capacidad_nominal = capacidad_barril_desde_codigo(codigo_barril)
+        ayuda_litros = (
+            f"Este barril es de {capacidad_nominal} L. Ingresa los litros aproximados que quedaron."
+            if capacidad_nominal
+            else "Ingresa los litros aproximados que quedaron en el barril."
+        )
+        litros_texto = st.text_input(
+            "Litros aproximados en el barril parcial",
+            key="mov_litros_parcial",
+            placeholder="Ejemplo: 5",
+            disabled=st.session_state.movimiento_guardando,
+            help=ayuda_litros,
+        ).strip()
+        if litros_texto:
+            try:
+                litros_parcial = float(litros_texto.replace(",", "."))
+            except ValueError:
+                litros_parcial = None
+            if litros_parcial is not None and litros_parcial > 0:
+                st.warning(
+                    f"⚠️ Este barril se registrará como PARCIAL: "
+                    f"{formatear_litros_barril(litros_parcial)} L."
+                )
 
 # ---------- DESPACHO DE LATAS ----------
 latas = []
@@ -2507,6 +2615,18 @@ if st.session_state.get("movimiento_solicitado", False):
     if estado_barril == "Despacho" and not cliente:
         errores_guardado.append("Debes seleccionar o ingresar el cliente del despacho.")
 
+    if estado_barril == "En cuarto frío" and barril_es_parcial:
+        capacidad_nominal = capacidad_barril_desde_codigo(codigo_barril)
+        if litros_parcial is None:
+            errores_guardado.append("Debes ingresar los litros aproximados del barril parcial.")
+        elif litros_parcial <= 0:
+            errores_guardado.append("Los litros del barril parcial deben ser mayores que cero.")
+        elif capacidad_nominal and litros_parcial >= capacidad_nominal:
+            errores_guardado.append(
+                f"Un barril parcial debe tener menos de {capacidad_nominal} L. "
+                "Si está lleno, selecciona 'Completo'."
+            )
+
     datos_barriles_frescos = pd.DataFrame()
     barriles_validados = []
     ultimo_fresco = None
@@ -2555,6 +2675,11 @@ if st.session_state.get("movimiento_solicitado", False):
                     "lote": normalizar_lote_barril(
                         ultimo_item.get("Lote", "") if ultimo_item is not None else item.get("lote", ""),
                         agregar_prefijo_l=True,
+                    ),
+                    "litros_parcial": (
+                        extraer_litros_barril_parcial(ultimo_item.get("Observaciones", ""))
+                        if ultimo_item is not None
+                        else item.get("litros_parcial")
                     ),
                 })
 
@@ -2610,6 +2735,12 @@ if st.session_state.get("movimiento_solicitado", False):
             conservar_operacion=False,
         )
 
+    observaciones_para_guardar = observaciones
+    if estado_barril == "En cuarto frío" and barril_es_parcial and litros_parcial is not None:
+        observaciones_para_guardar = agregar_marca_barril_parcial(
+            observaciones, codigo_barril, litros_parcial
+        )
+
     if estado_barril == "Despacho":
         datos_huella = {
             "barriles": barriles_validados,
@@ -2626,7 +2757,7 @@ if st.session_state.get("movimiento_solicitado", False):
             "estado": estado_barril,
             "cliente": cliente,
             "responsable": responsable,
-            "observaciones": observaciones,
+            "observaciones": observaciones_para_guardar,
             "lote": lote_producto,
             "estilo": estilo_cerveza,
             "incluye_latas": incluye_latas,
