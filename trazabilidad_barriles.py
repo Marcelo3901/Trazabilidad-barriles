@@ -23,7 +23,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font
 
 # La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
-# V7: muestra la alerta y los códigos de barril dentro de la columna Estado de inventario.
+# V8: muestra de forma visible los códigos al inicio de la columna Estado de inventario.
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
@@ -2326,11 +2326,18 @@ else:
         if alertas_inventario.empty:
             st.success("✅ No hay estilos de barril por debajo de 200 L en cuarto frío.")
         else:
-            # Los códigos se muestran dentro de la misma columna donde aparece la alerta,
-            # tal como se requiere para el reporte de inventario.
+            # IMPORTANTE: los códigos van AL PRINCIPIO del texto para que siempre sean visibles.
+            # Se extraen de la lista de barriles calculada para cada estilo.
             tabla_alertas = alertas_inventario[["Estilo", "Litros disponibles", "Barriles"]].copy()
+
+            def texto_estado_inventario(barriles):
+                codigos = re.findall(r"\b(?:20|30|58)\d{3}\b", str(barriles or ""))
+                codigos = list(dict.fromkeys(codigos))
+                texto_codigos = ", ".join(codigos) if codigos else "Sin códigos identificados"
+                return f"BARRILES: {texto_codigos} — ⚠️ BAJO STOCK (< 200 L)"
+
             tabla_alertas["Estado de inventario"] = tabla_alertas["Barriles"].map(
-                lambda barriles: f"⚠️ Inventario bajo (< 200 L) · Barriles: {barriles}"
+                texto_estado_inventario
             )
             tabla_alertas["Litros disponibles"] = tabla_alertas["Litros disponibles"].map(
                 lambda valor: f"{formatear_litros_barril(valor)} L"
@@ -2338,7 +2345,10 @@ else:
             tabla_alertas = tabla_alertas[[
                 "Estilo", "Litros disponibles", "Estado de inventario"
             ]]
-            st.dataframe(tabla_alertas, hide_index=True, use_container_width=True)
+
+            # st.table muestra el texto completo y evita que Streamlit esconda
+            # los códigos al final de una celda larga de st.dataframe.
+            st.table(tabla_alertas)
     except Exception as exc:
         st.error(f"No fue posible calcular la alerta de inventario de barriles: {exc}")
 
