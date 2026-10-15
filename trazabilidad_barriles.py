@@ -23,7 +23,7 @@ from openpyxl.drawing.image import Image as XLImage
 from openpyxl.styles import Alignment, Font
 
 # La validación de estados se realiza justo antes de guardar y nuevamente en Apps Script.
-# V8: muestra de forma visible los códigos al inicio de la columna Estado de inventario.
+# V4: permite registrar barriles parciales al ingresar al cuarto frío y los advierte en despacho.
 
 # CONFIGURACIÓN DE LA PÁGINA
 st.set_page_config(page_title="Trazabilidad Barriles Castiza", layout="centered")
@@ -1109,13 +1109,6 @@ PATRON_BARRIL_PARCIAL = re.compile(
     flags=re.IGNORECASE,
 )
 
-# Compatibilidad con observaciones históricas, por ejemplo:
-# "Barril con 28.4lt", "30351 barril con 11 ( L )" o "Barril co ( 14Lt)".
-PATRON_BARRIL_PARCIAL_HISTORICO = re.compile(
-    r"\bbarril\b.*?\bco(?:n)?\b[^0-9]{0,15}(\d+(?:[.,]\d+)?)\s*(?:\(\s*)?l(?:t|ts|itros?)?\s*\)?",
-    flags=re.IGNORECASE,
-)
-
 
 def formatear_litros_barril(valor):
     """Muestra litros sin decimales innecesarios: 5.0 -> 5; 5.5 -> 5.5."""
@@ -1128,11 +1121,9 @@ def formatear_litros_barril(valor):
 
 
 def extraer_litros_barril_parcial(observaciones):
-    """Lee litros parciales tanto del formato nuevo como de observaciones históricas."""
+    """Lee la marca visible BARRIL PARCIAL ...: X L guardada en Observaciones."""
     texto = limpiar_observacion_operacion(observaciones)
     coincidencia = PATRON_BARRIL_PARCIAL.search(texto)
-    if not coincidencia:
-        coincidencia = PATRON_BARRIL_PARCIAL_HISTORICO.search(texto)
     if not coincidencia:
         return None
     try:
@@ -1155,63 +1146,135 @@ def agregar_marca_barril_parcial(observaciones, codigo, litros):
     return f"{base} | {marca}" if base else marca
 
 
-UMBRAL_ALERTA_INVENTARIO_BARRILES_L = 200.0
+
+# ---------- RESUMEN GENERAL DE INVENTARIO ----------
+# Este bloque solo construye la tabla visual de inventario. No modifica los movimientos,
+# despachos, formatos ni la forma en que se guardan los datos.
+UMBRAL_INVENTARIO_BAJO_LITROS = 200.0
 
 
-def calcular_inventario_barriles_cuarto_frio(cuarto_frio_df):
+def _litros_barril_solo_para_resumen(fila):
+    """Calcula litros del barril para el resumen, respetando parciales nuevos y notas historicas."""
+    observaciones = str(fila.get("Observaciones", "") or "")
+
+    # Formato nuevo: BARRIL PARCIAL 30181: 5 L
+    litros = extraer_litros_barril_parcial(observaciones)
+    if litros is not None:
+        return float(litros)
+
+    # Compatibilidad exclusivamente para el resumen con notas historicas como:
+    # "Barril con 28.4lt", "barril con 11 ( L )" o "Barril co ( 14Lt)".
+    texto = limpiar_observacion_operacion(observaciones)
+    if normalizar_clave(texto).startswith("barril"):
+        coincidencia = re.search(
+            r"(\d+(?:[.,]\d+)?)\s*\(?\s*(?:l|lt|lts|litro|litros)\b",
+            texto,
+            flags=re.IGNORECASE,
+        )
+        if coincidencia:
+            try:
+                return float(coincidencia.group(1).replace(",", "."))
+            except (TypeError, ValueError):
+                pass
+
+    capacidad = capacidad_barril_desde_codigo(fila.get("Código", ""))
+    return float(capacidad or 0)
+
+
+def _numero_tabla_inventario(valor):
+    """Presenta enteros sin .0 y conserva hasta dos decimales cuando son necesarios."""
+    numero = round(float(valor or 0), 2)
+    if numero.is_integer():
+        return int(numero)
+    return numero
+
+
+def construir_tabla_inventario_con_codigos(cuarto_frio_df):
     """
-    Resume los litros reales disponibles por estilo en cuarto frío.
+    Construye el resumen general mostrado en la interfaz.
 
-    - Barril completo: usa la capacidad nominal según el código (20, 30 o 58 L).
-    - Barril parcial: usa los litros registrados en Observaciones.
-    - Conserva los códigos que componen cada existencia para mostrarlos en la alerta.
+    Unicamente cambia el texto de 'Estado inventario' cuando el total es menor a 200 L,
+    agregando los codigos de los barriles actualmente disponibles para ese estilo.
     """
-    columnas = ["Estilo", "Litros disponibles", "Barriles", "Cantidad de barriles"]
-    if cuarto_frio_df is None or cuarto_frio_df.empty:
-        return pd.DataFrame(columns=columnas)
-
-    filas = []
-    for _, fila in cuarto_frio_df.iterrows():
-        codigo = normalizar_codigo_barril(fila.get("Código", ""))
-        estilo = str(fila.get("Estilo", "") or "").strip() or "Sin estilo"
-        capacidad = capacidad_barril_desde_codigo(codigo)
-        if not codigo or capacidad is None:
-            continue
-
-        litros_parcial = extraer_litros_barril_parcial(fila.get("Observaciones", ""))
-        if litros_parcial is not None and litros_parcial > 0:
-            litros_reales = min(float(litros_parcial), float(capacidad))
-            detalle_codigo = (
-                f"{codigo} ({formatear_litros_barril(litros_reales)} L parcial)"
+    barriles_por_estilo = {}
+    if cuarto_frio_df is not None and not cuarto_frio_df.empty:
+        for _, fila in cuarto_frio_df.iterrows():
+            estilo = str(fila.get("Estilo", "") or "").strip()
+            codigo = normalizar_codigo_barril(fila.get("Código", ""))
+            if not estilo or not codigo:
+                continue
+            clave = normalizar_clave(estilo)
+            item = barriles_por_estilo.setdefault(
+                clave,
+                {"Estilo": estilo, "Barriles": 0, "Litros barriles": 0.0, "Codigos": []},
             )
+            item["Barriles"] += 1
+            item["Litros barriles"] += _litros_barril_solo_para_resumen(fila)
+            if codigo not in item["Codigos"]:
+                item["Codigos"].append(codigo)
+
+    latas_por_estilo = {}
+    inventario_latas_resumen = calcular_inventario_latas()
+    if inventario_latas_resumen is not None and not inventario_latas_resumen.empty:
+        agrupado_latas = (
+            inventario_latas_resumen.groupby("Estilo", as_index=False)["Disponible"]
+            .sum()
+        )
+        for _, fila in agrupado_latas.iterrows():
+            estilo = str(fila.get("Estilo", "") or "").strip()
+            if not estilo:
+                continue
+            clave = normalizar_clave(estilo)
+            latas_por_estilo[clave] = {
+                "Estilo": estilo,
+                "Latas": int(fila.get("Disponible", 0) or 0),
+            }
+
+    claves = set(barriles_por_estilo) | set(latas_por_estilo)
+    filas = []
+    for clave in claves:
+        datos_barriles = barriles_por_estilo.get(clave, {})
+        datos_latas = latas_por_estilo.get(clave, {})
+        estilo = datos_barriles.get("Estilo") or datos_latas.get("Estilo") or clave
+        cantidad_barriles = int(datos_barriles.get("Barriles", 0) or 0)
+        litros_barriles = float(datos_barriles.get("Litros barriles", 0) or 0)
+        cantidad_latas = int(datos_latas.get("Latas", 0) or 0)
+        litros_latas = cantidad_latas * 0.33
+        litros_totales = litros_barriles + litros_latas
+        codigos = sorted(datos_barriles.get("Codigos", []))
+
+        if litros_totales < UMBRAL_INVENTARIO_BAJO_LITROS:
+            if codigos:
+                estado = f"⚠️ Bajo — Barriles: {', '.join(codigos)}"
+            else:
+                estado = "⚠️ Bajo — Sin barriles en cuarto frío"
         else:
-            litros_reales = float(capacidad)
-            detalle_codigo = f"{codigo} ({formatear_litros_barril(litros_reales)} L)"
+            estado = "✅ Adecuado"
 
         filas.append({
             "Estilo": estilo,
-            "_estilo_key": normalizar_clave(estilo),
-            "Litros disponibles": litros_reales,
-            "Código": codigo,
-            "Detalle código": detalle_codigo,
+            "Barriles": cantidad_barriles,
+            "Litros barriles": _numero_tabla_inventario(litros_barriles),
+            "Latas": cantidad_latas,
+            "Litros latas": _numero_tabla_inventario(litros_latas),
+            "Litros totales": _numero_tabla_inventario(litros_totales),
+            "Estado inventario": estado,
         })
 
     if not filas:
-        return pd.DataFrame(columns=columnas)
+        return pd.DataFrame(columns=[
+            "Estilo", "Barriles", "Litros barriles", "Latas",
+            "Litros latas", "Litros totales", "Estado inventario"
+        ])
 
-    detalle = pd.DataFrame(filas)
-    resumen = (
-        detalle.groupby("_estilo_key", sort=False, as_index=False)
-        .agg(
-            Estilo=("Estilo", "first"),
-            **{"Litros disponibles": ("Litros disponibles", "sum")},
-            Barriles=("Detalle código", lambda s: " - ".join(dict.fromkeys(s))),
-            **{"Cantidad de barriles": ("Código", "nunique")},
+    orden_estilos = {normalizar_clave(nombre): indice for indice, nombre in enumerate(estilos)}
+    filas.sort(
+        key=lambda fila: (
+            orden_estilos.get(normalizar_clave(fila["Estilo"]), 999),
+            normalizar_clave(fila["Estilo"]),
         )
     )
-    resumen.sort_values("Litros disponibles", inplace=True, kind="stable")
-    resumen.reset_index(drop=True, inplace=True)
-    return resumen[columnas]
+    return pd.DataFrame(filas)
 
 
 def nombre_producto_barril(codigo, estilo):
@@ -2298,59 +2361,23 @@ except Exception as exc:
     cuarto_frio_cache_ui = pd.DataFrame()
     st.error(f"No fue posible consultar el estado actual de los barriles: {exc}")
 
-# ---------- ALERTA DE INVENTARIO BAJO EN CUARTO FRÍO ----------
-# Usa los mismos datos ya cargados para la interfaz; no hace una consulta adicional al Sheet.
-st.markdown("#### 🚨 Inventario bajo de barriles en cuarto frío")
-col_alerta_info, col_alerta_actualizar = st.columns([3, 1])
-with col_alerta_info:
-    st.caption(
-        "Cuando un estilo tenga menos de 200 L se muestran aquí sus litros y los códigos exactos "
-        "de los barriles que siguen disponibles en cuarto frío."
-    )
-with col_alerta_actualizar:
-    if st.button("🔄 Actualizar", key="actualizar_alerta_barriles"):
-        cargar_datos_barriles_ui.clear()
-        cargar_resumen_barriles_ui.clear()
-        st.rerun()
-
-if cuarto_frio_cache_ui.empty:
-    st.info("No hay barriles disponibles actualmente en cuarto frío para calcular la alerta.")
-else:
-    try:
-        inventario_barriles_cf = calcular_inventario_barriles_cuarto_frio(cuarto_frio_cache_ui)
-        alertas_inventario = inventario_barriles_cf[
-            (inventario_barriles_cf["Litros disponibles"] > 0)
-            & (inventario_barriles_cf["Litros disponibles"] < UMBRAL_ALERTA_INVENTARIO_BARRILES_L)
-        ].copy()
-
-        if alertas_inventario.empty:
-            st.success("✅ No hay estilos de barril por debajo de 200 L en cuarto frío.")
-        else:
-            # IMPORTANTE: los códigos van AL PRINCIPIO del texto para que siempre sean visibles.
-            # Se extraen de la lista de barriles calculada para cada estilo.
-            tabla_alertas = alertas_inventario[["Estilo", "Litros disponibles", "Barriles"]].copy()
-
-            def texto_estado_inventario(barriles):
-                codigos = re.findall(r"\b(?:20|30|58)\d{3}\b", str(barriles or ""))
-                codigos = list(dict.fromkeys(codigos))
-                texto_codigos = ", ".join(codigos) if codigos else "Sin códigos identificados"
-                return f"BARRILES: {texto_codigos} — ⚠️ BAJO STOCK (< 200 L)"
-
-            tabla_alertas["Estado de inventario"] = tabla_alertas["Barriles"].map(
-                texto_estado_inventario
-            )
-            tabla_alertas["Litros disponibles"] = tabla_alertas["Litros disponibles"].map(
-                lambda valor: f"{formatear_litros_barril(valor)} L"
-            )
-            tabla_alertas = tabla_alertas[[
-                "Estilo", "Litros disponibles", "Estado de inventario"
-            ]]
-
-            # st.table muestra el texto completo y evita que Streamlit esconda
-            # los códigos al final de una celda larga de st.dataframe.
-            st.table(tabla_alertas)
-    except Exception as exc:
-        st.error(f"No fue posible calcular la alerta de inventario de barriles: {exc}")
+# Resumen general de inventario. En bajo stock, Estado inventario incluye los codigos.
+try:
+    tabla_inventario_general = construir_tabla_inventario_con_codigos(cuarto_frio_cache_ui)
+    if not tabla_inventario_general.empty:
+        st.dataframe(
+            tabla_inventario_general,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Estado inventario": st.column_config.TextColumn(
+                    "Estado inventario",
+                    width="large",
+                )
+            },
+        )
+except Exception as exc:
+    st.warning(f"No fue posible construir el resumen general de inventario: {exc}")
 
 codigo_barril = ""
 lote_producto = ""
