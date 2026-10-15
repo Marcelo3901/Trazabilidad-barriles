@@ -1245,9 +1245,9 @@ def construir_tabla_inventario_con_codigos(cuarto_frio_df):
 
         if litros_totales < UMBRAL_INVENTARIO_BAJO_LITROS:
             if codigos:
-                estado = f"⚠️ Bajo: {', '.join(codigos)}"
+                estado = f"⚠️ Bajo — Barriles: {', '.join(codigos)}"
             else:
-                estado = "⚠️ Bajo: sin barriles"
+                estado = "⚠️ Bajo — Sin barriles en cuarto frío"
         else:
             estado = "✅ Adecuado"
 
@@ -2365,17 +2365,9 @@ except Exception as exc:
 try:
     tabla_inventario_general = construir_tabla_inventario_con_codigos(cuarto_frio_cache_ui)
     if not tabla_inventario_general.empty:
-        st.dataframe(
-            tabla_inventario_general,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Estado inventario": st.column_config.TextColumn(
-                    "Estado inventario",
-                    width=340,
-                )
-            },
-        )
+        # Tabla estática para que el texto completo de Estado inventario no se recorte.
+        tabla_inventario_visible = tabla_inventario_general.style.hide(axis="index")
+        st.table(tabla_inventario_visible)
 except Exception as exc:
     st.warning(f"No fue posible construir el resumen general de inventario: {exc}")
 
